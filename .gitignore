@@ -23,6 +23,7 @@ user_data/
 *.json
 !requirements.txt
 !package.json
+!railway.json
 
 # IDE
 .vscode/
