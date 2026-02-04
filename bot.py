@@ -18,7 +18,11 @@ import config
 from features import trade_logger, trade_query, trade_update, news_rule, admin_commands, pair_manager, account_manager, user_manager
 
 # Initialize news cache on startup
-news_rule.init_sample_news()
+try:
+    news_rule.init_sample_news()
+    print("✅ News cache initialized successfully")
+except Exception as e:
+    print(f"❌ Failed to initialize news cache: {e}")
 
 # Enable logging
 logging.basicConfig(
@@ -44,20 +48,36 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     is_new_user = not os.path.exists(config_path)
     
     if is_new_user:
-        # New user - ask for main account name
+        # New user - ask for email first
         welcome_message = (
             f"👋 <b>Welcome {user.mention_html()}!</b>\n\n"
             "📊 <b>Trading Journal Bot</b>\n"
             "Your personal trading assistant for disciplined trade management.\n\n"
-            "🎯 Let's get started! First, let's name your main trading account.\n\n"
-            "Please send me the name for your main account:\n"
-            "Example: <i>Live Account</i>, <i>Demo</i>, <i>Prop Firm</i>\n\n"
-            "Or type <b>/skip</b> to use default name <b>'Main Account'</b>"
+            "🎯 Let's get you set up! First, please provide your email address.\n\n"
+            "📧 <b>Why we need your email:</b>\n"
+            "• Account recovery and security\n"
+            "• Important trade notifications\n"
+            "• Weekly performance reports\n\n"
+            "Please send me your email address:\n"
+            "Example: <i>yourname@example.com</i>\n\n"
+            "Or type <b>/skip</b> to skip email (not recommended)"
         )
         # Store state for conversation
-        context.user_data['awaiting_account_name'] = True
+        context.user_data['awaiting_email'] = True
     else:
         # Existing user - show regular welcome
+        # Ensure existing user is registered in the registry (for users who joined before registry feature)
+        user_config = user_manager.load_user_config(user_id)
+        user_email = user_config.get('email')
+        
+        user_manager.register_user(
+            telegram_id=user_id,
+            username=user.username,
+            first_name=user.first_name,
+            last_name=user.last_name,
+            email=user_email
+        )
+        
         welcome_message = (
             f"👋 <b>Welcome back {user.mention_html()}!</b>\n\n"
             "📊 <b>Trading Journal Bot</b>\n"
@@ -77,13 +97,60 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         "/manageaccounts - 📊 Manage accounts\n"
         "/opentrades - 📊 View open trades\n"
         "/recenttrades - 📜 View recent trades\n"
-        "/news - 📰 View upcoming news\n"
+        "/news - 📰 View today's news\n"
         "/help - 📚 Get detailed help\n\n"
         "💡 <i>Tap any command to use it!</i>\n"
         "🔔 You'll receive news alerts automatically\n"
         "🚀 Ready to maintain your trading discipline!"
     )
     await update.message.reply_html(welcome_message)
+
+
+async def handle_setup_email(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Handle first-time email setup."""
+    if not context.user_data.get('awaiting_email'):
+        return
+    
+    user_id = update.effective_user.id
+    message_text = update.message.text.strip()
+    
+    # Handle skip
+    if message_text == '/skip':
+        user_email = None
+    else:
+        # Validate email format (basic check)
+        if '@' not in message_text or '.' not in message_text.split('@')[-1]:
+            await update.message.reply_html(
+                "❌ Invalid email format.\n"
+                "Please provide a valid email address or /skip to skip."
+            )
+            return
+        user_email = message_text.lower()
+    
+    # Store email in user_data for next step
+    context.user_data['user_email'] = user_email
+    context.user_data.pop('awaiting_email', None)
+    
+    # Now ask for account name
+    if user_email:
+        message = (
+            f"✅ <b>Email saved:</b> {user_email}\n\n"
+            "🎯 Now, let's name your main trading account.\n\n"
+            "Please send me the name for your main account:\n"
+            "Example: <i>Live Account</i>, <i>Demo</i>, <i>Prop Firm</i>\n\n"
+            "Or type <b>/skip</b> to use default name <b>'Main Account'</b>"
+        )
+    else:
+        message = (
+            "⚠️ <b>Email skipped</b>\n\n"
+            "🎯 Now, let's name your main trading account.\n\n"
+            "Please send me the name for your main account:\n"
+            "Example: <i>Live Account</i>, <i>Demo</i>, <i>Prop Firm</i>\n\n"
+            "Or type <b>/skip</b> to use default name <b>'Main Account'</b>"
+        )
+    
+    context.user_data['awaiting_account_name'] = True
+    await update.message.reply_html(message)
 
 
 async def handle_setup_account_name(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -107,10 +174,13 @@ async def handle_setup_account_name(update: Update, context: ContextTypes.DEFAUL
             return
         account_name = message_text
     
-    # Create user config with custom account name
+    # Create user config with custom account name and email
     user_dir = user_manager.get_user_data_dir(user_id)
+    user_email = context.user_data.get('user_email')
+    
     default_config = {
         'user_id': user_id,
+        'email': user_email,
         'pairs': ['EURUSD', 'GBPUSD', 'XAUUSD', 'USDJPY'],
         'accounts': [
             {
@@ -123,8 +193,19 @@ async def handle_setup_account_name(update: Update, context: ContextTypes.DEFAUL
     }
     user_manager.save_user_config(user_id, default_config)
     
+    # Register user in the admin registry CSV (checks for duplicates automatically)
+    user = update.effective_user
+    user_manager.register_user(
+        telegram_id=user_id,
+        username=user.username,
+        first_name=user.first_name,
+        last_name=user.last_name,
+        email=user_email
+    )
+    
     # Clear state
     context.user_data.pop('awaiting_account_name', None)
+    context.user_data.pop('user_email', None)
     
     # Send success message
     await update.message.reply_html(
@@ -145,7 +226,7 @@ async def handle_setup_account_name(update: Update, context: ContextTypes.DEFAUL
         "/manageaccounts - 📊 Manage accounts\n"
         "/opentrades - 📊 View open trades\n"
         "/recenttrades - 📜 View recent trades\n"
-        "/news - 📰 View upcoming news\n"
+        "/news - 📰 View today's news\n"
         "/help - 📚 Get detailed help\n\n"
         "💡 <i>Ready to log your first trade!</i>\n"
         "🚀 Let's maintain your trading discipline!"
@@ -198,8 +279,7 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         "/opentrades - 📊 View open trades\n"
         "/recenttrades - 📜 View recent trades\n"
         "/updatetrade - ✏️ Update trade result\n"
-        "/news - 📰 View upcoming news\n"
-        "/refreshnews - 🔄 Refresh news cache\n"
+        "/news - 📰 View today's news\n"
         "/addnews - ➕ Add news event manually\n"
         "/help - 📚 This help guide\n\n"
         "💡 <i>Tip: Tap any command to use it instantly!</i>"
@@ -217,8 +297,7 @@ async def post_init(application: Application) -> None:
         BotCommand("opentrades", "📊 View open trades"),
         BotCommand("recenttrades", "📜 View recent trades"),
         BotCommand("updatetrade", "✏️ Update trade result"),
-        BotCommand("news", "📰 View upcoming news"),
-        BotCommand("refreshnews", "🔄 Refresh news cache"),
+        BotCommand("news", "📰 View today's news"),
         BotCommand("addnews", "➕ Add news event manually"),
         BotCommand("help", "📚 Help guide"),
     ]
@@ -242,7 +321,6 @@ def main() -> None:
     application.add_handler(CommandHandler("opentrades", trade_query.show_open_trades))
     application.add_handler(CommandHandler("recenttrades", trade_query.show_recent_trades))
     application.add_handler(CommandHandler("news", admin_commands.show_upcoming_news))
-    application.add_handler(CommandHandler("refreshnews", admin_commands.refresh_news_command))
     application.add_handler(CommandHandler("addnews", admin_commands.add_news_event_command))
     
     # Pair management conversation handler
@@ -314,13 +392,28 @@ def main() -> None:
     )
     application.add_handler(update_conv_handler)
     
-    # Message handler for first-time account setup (in group 1, after all conversation handlers)
+    # Message handler for first-time user setup (email and account - in group 1, after all conversation handlers)
+    async def handle_first_time_setup(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        """Route first-time setup messages to appropriate handler."""
+        if context.user_data.get('awaiting_email'):
+            await handle_setup_email(update, context)
+        elif context.user_data.get('awaiting_account_name'):
+            await handle_setup_account_name(update, context)
+    
     application.add_handler(
         MessageHandler(
             filters.TEXT & ~filters.COMMAND & filters.ChatType.PRIVATE,
-            handle_setup_account_name
+            handle_first_time_setup
         ),
         group=1  # Lower priority than conversation handlers
+    )
+    
+    # Set up news refresh job - every 4 hours (6 times per day)
+    application.job_queue.run_repeating(
+        admin_commands.refresh_news_cache_job,
+        interval=14400,  # 4 hours = 14400 seconds
+        first=60,  # Start 60 seconds after bot starts
+        name='news_refresh'
     )
     
     # Set up news alert job - check every minute for upcoming news
@@ -341,7 +434,8 @@ def main() -> None:
     # Start the Bot
     logger.info("🚀 Trading Journal Bot is starting...")
     logger.info("🔔 News alert system activated")
-    logger.info("📰 Daily news refresh scheduled for 00:05 UK time")
+    logger.info("� News cache auto-refreshes every 4 hours (6 times/day)")
+    logger.info("📰 Daily news summary scheduled for 00:05 UK time")
     application.run_polling(allowed_updates=Update.ALL_TYPES)
 
 

@@ -120,28 +120,27 @@ def fetch_fcs_api_news(date_str: str) -> List[Dict]:
 
 def fetch_daily_news() -> List[Dict]:
     """
-    Fetch HIGH and MEDIUM impact news for today and tomorrow.
+    Fetch HIGH and MEDIUM impact news for today only from FCS API.
+    No fallback to sample data.
     
     Returns:
-        List of news event dictionaries
+        List of news event dictionaries (empty if API fails)
     """
+    if not config.FCS_API_KEY:
+        print("⚠️ FCS_API_KEY not set")
+        return []
+    
     news_events = []
     current_date = utils.get_current_uk_time().date()
+    date_str = current_date.strftime('%Y-%m-%d')
     
-    # Fetch news for today and tomorrow
-    for days_ahead in [0, 1]:
-        target_date = current_date + timedelta(days=days_ahead)
-        date_str = target_date.strftime('%Y-%m-%d')
-        
-        # Try FCS API first
-        fcs_news = fetch_fcs_api_news(date_str)
-        if fcs_news:
-            news_events.extend(fcs_news)
-        else:
-            # Fallback to sample data if API fails or no key
-            print(f"ℹ️ Using sample data for {date_str}")
-            sample_news = generate_sample_news_for_date(utils.get_current_uk_time() + timedelta(days=days_ahead))
-            news_events.extend(sample_news)
+    # Fetch only today's news from FCS API
+    fcs_news = fetch_fcs_api_news(date_str)
+    if fcs_news:
+        news_events.extend(fcs_news)
+        print(f"✅ Fetched {len(fcs_news)} events for today from FCS API")
+    else:
+        print(f"❌ Failed to fetch news for {date_str} from API")
     
     return news_events
 
@@ -183,15 +182,28 @@ def generate_sample_news_for_date(base_date: datetime) -> List[Dict]:
 
 
 def init_sample_news() -> None:
-    """Initialize cache with sample news events for demo purposes."""
-    current_time = utils.get_current_uk_time()
-    
-    # Generate sample news for today and tomorrow
-    today_news = generate_sample_news_for_date(current_time)
-    tomorrow_news = generate_sample_news_for_date(current_time + timedelta(days=1))
-    
-    all_news = today_news + tomorrow_news
-    save_news_cache(all_news)
+    """Initialize news cache by fetching real data from API."""
+    try:
+        print("🔄 Initializing news cache with real API data...")
+        
+        if not config.FCS_API_KEY:
+            print("⚠️ FCS_API_KEY not set - News feature disabled")
+            save_news_cache([])  # Empty cache
+            return
+        
+        # Fetch real news from API
+        all_news = fetch_daily_news()
+        
+        if not all_news:
+            print("⚠️ No news fetched from API - News feature unavailable")
+            save_news_cache([])  # Empty cache
+            return
+            
+        save_news_cache(all_news)
+        print(f"✅ Initialized {len(all_news)} real news events from API")
+    except Exception as e:
+        print(f"❌ Error in init_sample_news: {e}")
+        save_news_cache([])  # Empty cache on error
 
 
 def check_news_risk(trade_time: datetime) -> str:
@@ -227,37 +239,43 @@ def check_news_risk(trade_time: datetime) -> str:
     return 'LOW'
 
 
-def get_upcoming_news(hours: int = 24) -> List[Dict]:
+def get_todays_news() -> List[Dict]:
     """
-    Get news events happening in the next X hours.
-    
-    Args:
-        hours: Number of hours to look ahead
+    Get all news events for today only.
     
     Returns:
-        List of upcoming news events sorted by datetime
+        List of today's news events sorted by datetime, or None if error/no API key
     """
     cache_data = load_news_cache()
     news_events = cache_data.get('news', [])
     
     if not news_events:
-        return []
+        print("⚠️ No news events in cache")
+        return None  # Return None to indicate error state
     
     current_time = utils.get_current_uk_time()
-    future_time = current_time + timedelta(hours=hours)
+    today_start = current_time.replace(hour=0, minute=0, second=0, microsecond=0)
+    today_end = today_start + timedelta(days=1)
     
-    upcoming = []
+    print(f"📅 Getting today's news: {today_start.strftime('%Y-%m-%d')}")
+    print(f"📰 Total events in cache: {len(news_events)}")
+    
+    todays_events = []
     for event in news_events:
         try:
             event_time = utils.parse_datetime(event['datetime'])
-            if current_time <= event_time <= future_time:
-                upcoming.append(event)
-        except (KeyError, ValueError):
+            if today_start <= event_time < today_end:
+                todays_events.append(event)
+                print(f"✅ Today's event: {event['title']} at {event['datetime']}")
+        except (KeyError, ValueError) as e:
+            print(f"❌ Error parsing event: {e}")
             continue
     
+    print(f"🔍 Found {len(todays_events)} events for today")
+    
     # Sort by datetime
-    upcoming.sort(key=lambda x: x['datetime'])
-    return upcoming
+    todays_events.sort(key=lambda x: x['datetime'])
+    return todays_events
 
 
 def get_news_in_10_minutes() -> List[Dict]:

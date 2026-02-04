@@ -3,8 +3,11 @@ User Manager - Handle user configurations, pairs, and accounts
 """
 import json
 import os
+import csv
 from typing import List, Dict, Optional
+from datetime import datetime
 import config
+import utils
 
 
 def get_user_config_path(user_id: int) -> str:
@@ -37,6 +40,7 @@ def load_user_config(user_id: int) -> Dict:
         
         default_config = {
             'user_id': user_id,
+            'email': None,  # No email by default for existing users
             'pairs': ['EURUSD', 'GBPUSD', 'XAUUSD', 'USDJPY'],  # Default pairs
             'accounts': [
                 {
@@ -58,6 +62,7 @@ def load_user_config(user_id: int) -> Dict:
         user_dir = get_user_data_dir(user_id)
         return {
             'user_id': user_id,
+            'email': None,
             'pairs': ['EURUSD', 'GBPUSD', 'XAUUSD', 'USDJPY'],
             'accounts': [
                 {
@@ -77,6 +82,84 @@ def save_user_config(user_id: int, config_data: Dict) -> None:
     
     with open(config_path, 'w') as f:
         json.dump(config_data, f, indent=2)
+
+
+def user_exists_in_registry(telegram_id: int) -> bool:
+    """
+    Check if a user already exists in the registry by telegram_id.
+    
+    Args:
+        telegram_id: The user's Telegram ID
+        
+    Returns:
+        True if user exists, False otherwise
+    """
+    if not os.path.exists(config.USER_REGISTRY_PATH):
+        return False
+    
+    try:
+        with open(config.USER_REGISTRY_PATH, 'r', encoding='utf-8') as f:
+            reader = csv.DictReader(f)
+            for row in reader:
+                if int(row['telegram_id']) == telegram_id:
+                    return True
+        return False
+    except Exception as e:
+        print(f"❌ Error checking user registry: {e}")
+        return False
+
+
+def register_user(telegram_id: int, username: str, first_name: str, last_name: str, email: Optional[str]) -> bool:
+    """
+    Register a new user in the registry CSV.
+    Only writes if user doesn't already exist.
+    
+    Args:
+        telegram_id: The user's Telegram ID
+        username: The user's Telegram username
+        first_name: The user's first name
+        last_name: The user's last name
+        email: The user's email address (optional)
+        
+    Returns:
+        True if user was registered, False if already exists
+    """
+    # Check if user already exists
+    if user_exists_in_registry(telegram_id):
+        print(f"ℹ️ User {telegram_id} already registered - skipping")
+        return False
+    
+    # Ensure data directory exists
+    os.makedirs(os.path.dirname(config.USER_REGISTRY_PATH), exist_ok=True)
+    
+    # Check if file exists to determine if we need headers
+    file_exists = os.path.exists(config.USER_REGISTRY_PATH)
+    
+    try:
+        with open(config.USER_REGISTRY_PATH, 'a', newline='', encoding='utf-8') as f:
+            fieldnames = ['telegram_id', 'username', 'first_name', 'last_name', 'email', 'registration_date']
+            writer = csv.DictWriter(f, fieldnames=fieldnames)
+            
+            # Write header if file is new
+            if not file_exists:
+                writer.writeheader()
+            
+            # Write user data
+            writer.writerow({
+                'telegram_id': telegram_id,
+                'username': username or '',
+                'first_name': first_name or '',
+                'last_name': last_name or '',
+                'email': email or '',
+                'registration_date': utils.get_current_datetime_string()
+            })
+            
+        print(f"✅ User {telegram_id} registered successfully")
+        return True
+        
+    except Exception as e:
+        print(f"❌ Error registering user: {e}")
+        return False
 
 
 def get_user_pairs(user_id: int) -> List[str]:

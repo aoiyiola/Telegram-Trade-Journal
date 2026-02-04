@@ -8,56 +8,91 @@ import utils
 
 
 async def show_upcoming_news(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Display upcoming high-impact news events."""
-    upcoming = news_rule.get_upcoming_news(hours=24)
-    
-    if not upcoming:
-        await update.message.reply_html(
-            "📰 <b>Upcoming News (24h)</b>\n\n"
-            "No high-impact news events scheduled.\n\n"
-            "💡 Use /refreshnews to fetch today's news\n"
-            "📝 Use /addnews to manually add an event"
+    """Display today's high-impact news events with beautiful formatting."""
+    try:
+        todays_news = news_rule.get_todays_news()
+        
+        # Check if news feature is unavailable
+        if todays_news is None:
+            await update.message.reply_html(
+                "⚠️ <b>News Feature Status</b>\n\n"
+                "📰 News addon is on hold, please check back later.\n\n"
+                "💡 The news service will be available soon."
+            )
+            return
+        
+        # Check if no events today
+        if not todays_news:
+            current_date = utils.get_current_uk_time().strftime('%A, %B %d, %Y')
+            await update.message.reply_html(
+                f"📰 <b>Today's Economic News</b>\n"
+                f"📅 {current_date}\n\n"
+                "✅ <i>No high-impact news events scheduled today</i>\n\n"
+                "🟢 Safe to trade without news risk concerns!"
+            )
+            return
+        
+        # Build beautiful message with today's news
+        current_date = utils.get_current_uk_time().strftime('%A, %B %d, %Y')
+        current_time = utils.get_current_uk_time()
+        
+        message = (
+            f"📰 <b>Today's Economic Calendar</b>\n"
+            f"📅 {current_date}\n"
+            f"━━━━━━━━━━━━━━━━━━━━\n\n"
         )
-        return
-    
-    message = f"📰 <b>Upcoming News Events ({len(upcoming)})</b>\n\n"
-    message += "⚠️ <i>Avoid trading ±10 min around these times</i>\n\n"
-    
-    for event in upcoming:
-        time_str = utils.format_display_datetime(event['datetime'])
-        impact_emoji = "🔴" if event.get('impact') == 'HIGH' else "🟡"
+        
+        for idx, event in enumerate(todays_news, 1):
+            event_time = utils.parse_datetime(event['datetime'])
+            time_str = event_time.strftime('%H:%M')
+            
+            # Determine if event has passed
+            if event_time < current_time:
+                status_emoji = "✅"
+                status = "Completed"
+            else:
+                status_emoji = "🔴"
+                status = "Upcoming"
+            
+            # Impact emoji
+            impact = event.get('impact', 'HIGH')
+            if impact == 'HIGH':
+                impact_emoji = "🔴"
+                impact_text = "<b>HIGH</b>"
+            else:
+                impact_emoji = "🟡"
+                impact_text = "MEDIUM"
+            
+            currency = event.get('currency', 'USD')
+            title = event['title']
+            
+            message += (
+                f"{status_emoji} <b>{time_str}</b> - {status}\n"
+                f"{impact_emoji} Impact: {impact_text}\n"
+                f"💱 Currency: <code>{currency}</code>\n"
+                f"📋 {title}\n"
+                f"⚠️ Avoid trading ±10 min around this time\n\n"
+            )
+        
         message += (
-            f"{impact_emoji} <b>{event['title']}</b>\n"
-            f"📅 {time_str}\n"
+            "━━━━━━━━━━━━━━━━━━━━\n"
+            "🔔 <i>You'll receive alerts 10 minutes before each event</i>\n"
+            "🛡️ <i>Trades during risk windows will be flagged automatically</i>\n\n"
+            "💡 News updates refresh every 4 hours"
         )
-        if event.get('currency'):
-            message += f"💱 {event['currency']}\n"
-        message += f"⚡ Impact: {event.get('impact', 'HIGH')}\n\n"
-    
-    message += (
-        "━━━━━━━━━━━━━━━━━━━━\n"
-        "💡 You'll receive alerts 10 min before each event\n"
-        "🛡️ Trades during risk windows will be flagged"
-    )
-    
-    await update.message.reply_html(message)
+        
+        await update.message.reply_html(message)
+        
+    except Exception as e:
+        await update.message.reply_html(
+            f"❌ <b>Error Loading News</b>\n\n"
+            f"📰 News addon is on hold, please check back later.\n\n"
+            "💡 The service will be restored shortly."
+        )
+        print(f"❌ Error in show_upcoming_news: {e}")
+        return
 
 
-async def refresh_news_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Fetch and cache today's and tomorrow's news events."""
-    await update.message.reply_html(
-        "🔄 <b>Fetching news events...</b>\n\n"
-        "Please wait..."
-    )
-    
-    count = news_rule.refresh_daily_news()
-    
-    await update.message.reply_html(
-        f"✅ <b>News Cache Updated</b>\n\n"
-        f"📰 Loaded <b>{count}</b> news event(s)\n"
-        f"📅 Coverage: Today + Tomorrow\n\n"
-        "💡 Use /news to view upcoming events"
-    )
 
 
 async def add_news_event_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -158,6 +193,19 @@ async def send_news_alert(context: ContextTypes.DEFAULT_TYPE) -> None:
                 )
             except Exception as e:
                 print(f"Failed to send alert to {chat_id}: {e}")
+
+
+async def refresh_news_cache_job(context: ContextTypes.DEFAULT_TYPE) -> None:
+    """
+    Background job to refresh news cache every 4 hours.
+    Ensures we always have up-to-date news data.
+    """
+    try:
+        print("🔄 Running scheduled news refresh...")
+        all_news = news_rule.refresh_daily_news()
+        print(f"✅ News cache refreshed: {len(all_news)} events loaded")
+    except Exception as e:
+        print(f"❌ Failed to refresh news cache: {e}")
 
 
 async def send_daily_news_summary(context: ContextTypes.DEFAULT_TYPE) -> None:

@@ -29,4 +29,5 @@ FCS_API_KEY = os.getenv('FCS_API_KEY', '')  # Get free key from fcsapi.com
 # CSV File Path
 TRADES_CSV_PATH = 'data/trades.csv'
 NEWS_CACHE_PATH = 'data/news_cache.json'
+USER_REGISTRY_PATH = 'data/users_registry.csv'  # Admin-only user registration data
 DATA_DIR = 'data'
