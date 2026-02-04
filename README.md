@@ -57,4 +57,43 @@ trading_journal_bot/
 │   ├── trades.csv
 │   └── news_cache.json
 │
-└── README.md
+└── # Trading Journal Telegram Bot
+
+A Telegram-based trading journal bot for logging, managing, and reviewing trades with automated session tagging and news risk detection.
+
+## Setup
+
+1. **Install dependencies:**
+   ```bash
+   pip install -r requirements.txt
+   ```
+
+2. **Create a Telegram Bot:**
+   - Talk to [@BotFather](https://t.me/BotFather) on Telegram
+   - Use `/newbot` command and follow instructions
+   - Copy your bot token
+
+3. **Configure environment:**
+   ```bash
+   cp .env.example .env
+   ```
+   - Edit `.env` and add your bot token
+
+4. **Run the bot:**
+   ```bash
+   python bot.py
+   ```
+
+5. **Test it:**
+   - Find your bot on Telegram
+   - Send `/start` command
+   - You should see a welcome message!
+
+## Current Status
+
+✅ Bot connection and basic commands
+🚧 Feature modules (in development)
+
+## Project Structure
+
+See `trading_journal_project_schema.txt` for detailed project overview and planned features.

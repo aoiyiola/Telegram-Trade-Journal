@@ -1,0 +1,127 @@
+
+TRADING JOURNAL TELEGRAM BOT — PROJECT OVERVIEW & SCHEMA
+======================================================
+
+PROJECT IDEA
+------------
+A Telegram-based trading journal bot designed to help traders log, manage,
+and review their trades in a structured, rule-based, and automated way.
+
+The bot focuses on discipline and data collection rather than prediction.
+All logic is deterministic (no AI).
+
+Core goals:
+- Fast trade logging via guided prompts
+- Automatic rule enforcement (session, status, news)
+- CSV-based storage for easy analysis
+- Modular feature design for future extension
+
+
+KEY FEATURES (AGREED)
+--------------------
+
+1. Trade Logging
+- Step-by-step guided input:
+  Pair → Direction → Entry → SL → TP → Notes
+- Trade saved automatically to CSV
+- Status set to OPEN on creation
+
+2. Automatic Session Tagging (Time-Based)
+- Session is detected automatically based on UK time
+- No manual input from the user
+
+Sessions:
+- Asia    : 00:00 – 06:59
+- London  : 07:00 – 12:59
+- New York: 13:00 – 21:00
+- Off     : Outside these hours (optional rule flag)
+
+3. News Risk Rule (API-Based)
+- High-impact economic news detected using:
+  - Investing.com or ForexFactory (scraping or API)
+- Trades logged within ±X minutes of high-impact news are flagged
+- News risk stored as LOW / HIGH
+- News data is cached daily to avoid repeated calls
+
+4. Trade Status Rule
+- OPEN        → default on creation
+- CLOSED      → when result is W or L
+- BREAKEVEN   → when result is DD
+- VIOLATION   → optional (e.g. outside allowed session)
+
+5. Trade Queries
+- List open trades (result empty)
+- List recent trades
+- Filter by session or status (later extension)
+
+6. Trade Update
+- Update trade result: W / L / DD
+- Status updated automatically based on result
+
+
+PROJECT STRUCTURE (SIMPLIFIED & MODULAR)
+---------------------------------------
+
+trading_journal_bot/
+│
+├── bot.py              # Telegram bot entry point
+├── core.py             # Routing + conversation state handling
+├── config.py           # Timezone, sessions, API keys, rule settings
+│
+├── features/
+│   ├── trade_logger.py   # New trade conversation + save logic
+│   ├── session_tag.py    # Auto session detection (time-based)
+│   ├── news_rule.py      # News risk detection (API + cache)
+│   ├── status_rule.py    # Status assignment and rule logic
+│   ├── trade_query.py    # List and filter trades
+│   └── trade_update.py   # Update trade results
+│
+├── storage.py          # CSV read/write operations
+├── formatters.py       # User-facing message formatting
+├── utils.py            # Time helpers, ID generation
+│
+├── data/
+│   ├── trades.csv
+│   └── news_cache.json
+│
+└── README.md
+
+
+TRADE DATA SCHEMA (CSV)
+----------------------
+
+Filename: trades.csv
+
+Columns (fixed order):
+
+trade_id        : int    - unique trade identifier
+datetime        : str    - ISO datetime (UK timezone)
+pair            : str    - trading pair (e.g. EURUSD, BTCUSDT)
+direction       : str    - BUY or SELL
+entry           : float  - entry price
+sl              : float  - stop loss price
+tp              : float  - take profit price
+session         : str    - Asia / London / New York / Off
+status          : str    - OPEN / CLOSED / BREAKEVEN / VIOLATION
+news_risk       : str    - LOW / HIGH
+result          : str    - W / L / DD / empty
+notes           : str    - optional user notes
+
+
+DESIGN PRINCIPLES
+-----------------
+- No AI or predictive logic
+- Rule-based, deterministic behavior
+- Each feature lives in a single file
+- Core logic only routes and tracks state
+- Storage is abstracted (CSV now, DB later)
+- Easy to extend without refactoring
+
+
+FUTURE EXTENSIONS (OPTIONAL)
+----------------------------
+- Risk / R-multiple calculation
+- Session performance reports
+- Rule violation statistics
+- CSV export to Google Sheets
+- Database migration (SQLite/Postgres)
