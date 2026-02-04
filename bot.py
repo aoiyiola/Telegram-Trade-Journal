@@ -279,14 +279,6 @@ def main() -> None:
     )
     application.add_handler(account_conv_handler)
     
-    # Message handler for first-time account setup (must be before other message handlers)
-    application.add_handler(
-        MessageHandler(
-            filters.TEXT & ~filters.COMMAND & filters.ChatType.PRIVATE,
-            handle_setup_account_name
-        )
-    )
-    
     # Trade logger conversation handler
     trade_conv_handler = ConversationHandler(
         entry_points=[CommandHandler("newtrade", trade_logger.start_new_trade)],
@@ -321,6 +313,15 @@ def main() -> None:
         per_message=False
     )
     application.add_handler(update_conv_handler)
+    
+    # Message handler for first-time account setup (in group 1, after all conversation handlers)
+    application.add_handler(
+        MessageHandler(
+            filters.TEXT & ~filters.COMMAND & filters.ChatType.PRIVATE,
+            handle_setup_account_name
+        ),
+        group=1  # Lower priority than conversation handlers
+    )
     
     # Set up news alert job - check every minute for upcoming news
     application.job_queue.run_repeating(
