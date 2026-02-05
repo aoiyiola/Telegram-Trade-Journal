@@ -10,10 +10,10 @@ import utils
 async def show_upcoming_news(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Display today's high-impact news events with beautiful formatting."""
     try:
-        todays_news = news_rule.get_todays_news()
+        todays_news, api_available = news_rule.get_todays_news()
         
-        # Check if news feature is unavailable
-        if todays_news is None:
+        # Check if API is unavailable
+        if not api_available:
             await update.message.reply_html(
                 "⚠️ <b>News Feature Status</b>\n\n"
                 "📰 News addon is on hold, please check back later.\n\n"
@@ -21,14 +21,15 @@ async def show_upcoming_news(update: Update, context: ContextTypes.DEFAULT_TYPE)
             )
             return
         
-        # Check if no events today
+        # Check if no events today (but API is working)
         if not todays_news:
             current_date = utils.get_current_uk_time().strftime('%A, %B %d, %Y')
             await update.message.reply_html(
                 f"📰 <b>Today's Economic News</b>\n"
                 f"📅 {current_date}\n\n"
                 "✅ <i>No high-impact news events scheduled today</i>\n\n"
-                "🟢 Safe to trade without news risk concerns!"
+                "🟢 Safe to trade without news risk concerns!\n\n"
+                "💡 News updates automatically every 4 hours"
             )
             return
         
@@ -70,14 +71,13 @@ async def show_upcoming_news(update: Update, context: ContextTypes.DEFAULT_TYPE)
                 f"{status_emoji} <b>{time_str}</b> - {status}\n"
                 f"{impact_emoji} Impact: {impact_text}\n"
                 f"💱 Currency: <code>{currency}</code>\n"
-                f"📋 {title}\n"
-                f"⚠️ Avoid trading ±10 min around this time\n\n"
+                f"📋 {title}\n\n"
             )
         
         message += (
             "━━━━━━━━━━━━━━━━━━━━\n"
             "🔔 <i>You'll receive alerts 10 minutes before each event</i>\n"
-            "🛡️ <i>Trades during risk windows will be flagged automatically</i>\n\n"
+            "🛡️ <i>Trades during news windows will be flagged automatically</i>\n\n"
             "💡 News updates refresh every 4 hours"
         )
         
@@ -153,18 +153,35 @@ async def add_news_event_command(update: Update, context: ContextTypes.DEFAULT_T
 async def send_news_alert(context: ContextTypes.DEFAULT_TYPE) -> None:
     """
     Background job to check for upcoming news and send alerts.
-    Called every minute by the job queue.
+    Runs every minute (this is intentional) to catch news 10 minutes before.
+    Only sends alerts when news is actually upcoming.
+    Ensures each news event alert is sent only ONCE.
     """
     upcoming_news = news_rule.get_news_in_10_minutes()
     
     if not upcoming_news:
+        # No news in the next 10-11 minutes - this is normal, don't log
         return
     
+    # Initialize alerted events tracker if not exists
+    if 'alerted_news_events' not in context.bot_data:
+        context.bot_data['alerted_news_events'] = set()
+    
     # Send alert to all users who have interacted with the bot
-    # For now, we'll broadcast to the chat_id stored in bot_data
     chat_ids = context.bot_data.get('subscribed_users', set())
     
     for event in upcoming_news:
+        # Create unique identifier for this event (datetime + title)
+        event_id = f"{event['datetime']}_{event['title']}"
+        
+        # Check if alert already sent for this event
+        if event_id in context.bot_data['alerted_news_events']:
+            # Already alerted, skip
+            continue
+        
+        # Mark as alerted
+        context.bot_data['alerted_news_events'].add(event_id)
+        
         impact_emoji = "🔴" if event.get('impact') == 'HIGH' else "🟡"
         time_str = utils.format_display_datetime(event['datetime'])
         
@@ -178,11 +195,7 @@ async def send_news_alert(context: ContextTypes.DEFAULT_TYPE) -> None:
         if event.get('currency'):
             alert_message += f"💱 Currency: {event['currency']}\n"
         
-        alert_message += (
-            f"\n⚡ Impact: <b>{event.get('impact', 'HIGH')}</b>\n\n"
-            "🛑 <b>Avoid opening new trades</b>\n"
-            "💡 Consider closing risky positions"
-        )
+        alert_message += f"\n⚡ Impact: <b>{event.get('impact', 'HIGH')}</b>"
         
         for chat_id in chat_ids:
             try:
@@ -193,17 +206,31 @@ async def send_news_alert(context: ContextTypes.DEFAULT_TYPE) -> None:
                 )
             except Exception as e:
                 print(f"Failed to send alert to {chat_id}: {e}")
+        
+        print(f"✅ Alert sent for: {event['title']} at {event['datetime']}")
 
 
 async def refresh_news_cache_job(context: ContextTypes.DEFAULT_TYPE) -> None:
     """
     Background job to refresh news cache every 4 hours.
     Ensures we always have up-to-date news data.
+    Also cleans up old alerted events from memory.
     """
     try:
         print("🔄 Running scheduled news refresh...")
-        all_news = news_rule.refresh_daily_news()
-        print(f"✅ News cache refreshed: {len(all_news)} events loaded")
+        count = news_rule.refresh_daily_news()
+        if count > 0:
+            print(f"✅ News cache refreshed: {count} events loaded")
+        else:
+            print("ℹ️ News cache refreshed: No events today")
+        
+        # Clean up old alerted events (older than 2 hours)
+        if 'alerted_news_events' in context.bot_data:
+            old_count = len(context.bot_data['alerted_news_events'])
+            # Clear all old alerts on refresh (they're already past)
+            context.bot_data['alerted_news_events'].clear()
+            if old_count > 0:
+                print(f"🧹 Cleared {old_count} old alert records")
     except Exception as e:
         print(f"❌ Failed to refresh news cache: {e}")
 

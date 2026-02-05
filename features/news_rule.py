@@ -29,13 +29,14 @@ def load_news_cache() -> Dict:
         return {'last_updated': None, 'news': []}
 
 
-def save_news_cache(news_events: List[Dict], last_updated: str = None) -> None:
+def save_news_cache(news_events: List[Dict], last_updated: str = None, api_available: bool = True) -> None:
     """
     Save news data to cache file.
     
     Args:
         news_events: List of news event dictionaries
         last_updated: Optional timestamp, defaults to current time
+        api_available: Whether the API is available and working
     """
     os.makedirs(os.path.dirname(config.NEWS_CACHE_PATH), exist_ok=True)
     
@@ -44,6 +45,7 @@ def save_news_cache(news_events: List[Dict], last_updated: str = None) -> None:
     
     cache_data = {
         'last_updated': last_updated,
+        'api_available': api_available,
         'news': news_events
     }
     
@@ -59,11 +61,11 @@ def fetch_fcs_api_news(date_str: str) -> List[Dict]:
         date_str: Date string in format 'YYYY-MM-DD'
     
     Returns:
-        List of news event dictionaries
+        List of news event dictionaries (empty list if no events, None if API error)
     """
     if not config.FCS_API_KEY:
-        print("⚠️ FCS_API_KEY not set. Using sample data.")
-        return []
+        print("⚠️ FCS_API_KEY not set")
+        return None  # Return None to indicate API unavailable
     
     url = "https://fcsapi.com/api-v3/economy/calendar"
     params = {
@@ -74,6 +76,7 @@ def fetch_fcs_api_news(date_str: str) -> List[Dict]:
     }
     
     try:
+        print(f"🔄 Fetching news from FCS API for {date_str}...")
         response = requests.get(url, params=params, timeout=10)
         response.raise_for_status()
         
@@ -81,10 +84,13 @@ def fetch_fcs_api_news(date_str: str) -> List[Dict]:
         
         if data.get('status') != True:
             print(f"❌ FCS API Error: {data.get('msg', 'Unknown error')}")
-            return []
+            return None  # API error
         
         news_events = []
-        for event in data.get('response', []):
+        raw_events = data.get('response', [])
+        print(f"📊 FCS API returned {len(raw_events)} total events")
+        
+        for event in raw_events:
             # Parse FCS API response
             event_date = event.get('date', '')
             event_time = event.get('time', '')
@@ -107,42 +113,47 @@ def fetch_fcs_api_news(date_str: str) -> List[Dict]:
                 'impact': event.get('impact', 'MEDIUM').upper()
             })
         
-        print(f"✅ Fetched {len(news_events)} events from FCS API for {date_str}")
-        return news_events
+        print(f"✅ Fetched {len(news_events)} high/medium impact events from FCS API for {date_str}")
+        return news_events  # Return empty list if no events (valid response)
         
     except requests.exceptions.RequestException as e:
         print(f"❌ Error fetching from FCS API: {e}")
-        return []
+        return None  # API error
     except Exception as e:
         print(f"❌ Unexpected error: {e}")
-        return []
+        return None  # API error
 
 
 def fetch_daily_news() -> List[Dict]:
     """
     Fetch HIGH and MEDIUM impact news for today only from FCS API.
-    No fallback to sample data.
+    Returns None if API fails, empty list if no events today.
     
     Returns:
-        List of news event dictionaries (empty if API fails)
+        List of news event dictionaries, empty list if no events, None if API error
     """
     if not config.FCS_API_KEY:
         print("⚠️ FCS_API_KEY not set")
-        return []
+        return None  # API unavailable
     
-    news_events = []
     current_date = utils.get_current_uk_time().date()
     date_str = current_date.strftime('%Y-%m-%d')
     
     # Fetch only today's news from FCS API
     fcs_news = fetch_fcs_api_news(date_str)
-    if fcs_news:
-        news_events.extend(fcs_news)
-        print(f"✅ Fetched {len(fcs_news)} events for today from FCS API")
-    else:
-        print(f"❌ Failed to fetch news for {date_str} from API")
     
-    return news_events
+    if fcs_news is None:
+        # API error
+        print(f"❌ API failed for {date_str}")
+        return None
+    elif len(fcs_news) == 0:
+        # API worked but no events today
+        print(f"✅ API successful but no high/medium impact events today ({date_str})")
+        return []
+    else:
+        # Got events
+        print(f"✅ Fetched {len(fcs_news)} events for today from FCS API")
+        return fcs_news
 
 
 def generate_sample_news_for_date(base_date: datetime) -> List[Dict]:
@@ -188,22 +199,29 @@ def init_sample_news() -> None:
         
         if not config.FCS_API_KEY:
             print("⚠️ FCS_API_KEY not set - News feature disabled")
-            save_news_cache([])  # Empty cache
+            save_news_cache([], api_available=False)
             return
         
         # Fetch real news from API
         all_news = fetch_daily_news()
         
-        if not all_news:
-            print("⚠️ No news fetched from API - News feature unavailable")
-            save_news_cache([])  # Empty cache
+        if all_news is None:
+            # API error
+            print("⚠️ API error - News feature unavailable")
+            save_news_cache([], api_available=False)
             return
-            
-        save_news_cache(all_news)
-        print(f"✅ Initialized {len(all_news)} real news events from API")
+        elif len(all_news) == 0:
+            # API worked but no events
+            print("✅ API working but no high/medium impact events scheduled for today")
+            save_news_cache([], api_available=True)
+            return
+        else:
+            # Got events
+            save_news_cache(all_news, api_available=True)
+            print(f"✅ Initialized {len(all_news)} real news events from API")
     except Exception as e:
         print(f"❌ Error in init_sample_news: {e}")
-        save_news_cache([])  # Empty cache on error
+        save_news_cache([], api_available=False)
 
 
 def check_news_risk(trade_time: datetime) -> str:
@@ -239,19 +257,29 @@ def check_news_risk(trade_time: datetime) -> str:
     return 'LOW'
 
 
-def get_todays_news() -> List[Dict]:
+def get_todays_news() -> tuple:
     """
     Get all news events for today only.
     
     Returns:
-        List of today's news events sorted by datetime, or None if error/no API key
+        Tuple of (events_list, api_available_bool)
+        - (None, False) if API is unavailable/error
+        - ([], True) if API working but no events today
+        - ([events], True) if API working and has events
     """
     cache_data = load_news_cache()
+    api_available = cache_data.get('api_available', True)  # Default to True for old caches
     news_events = cache_data.get('news', [])
     
+    # Check if API is unavailable
+    if not api_available:
+        print("⚠️ API marked as unavailable in cache")
+        return (None, False)
+    
+    # API is available
     if not news_events:
-        print("⚠️ No news events in cache")
-        return None  # Return None to indicate error state
+        print("ℹ️ No news events in cache but API is available")
+        return ([], True)  # No events today
     
     current_time = utils.get_current_uk_time()
     today_start = current_time.replace(hour=0, minute=0, second=0, microsecond=0)
@@ -275,7 +303,7 @@ def get_todays_news() -> List[Dict]:
     
     # Sort by datetime
     todays_events.sort(key=lambda x: x['datetime'])
-    return todays_events
+    return (todays_events, True)
 
 
 def get_news_in_10_minutes() -> List[Dict]:
@@ -336,6 +364,7 @@ def add_news_event(datetime_str: str, title: str, currency: str, impact: str) ->
         # Load current cache
         cache_data = load_news_cache()
         news_events = cache_data.get('news', [])
+        api_available = cache_data.get('api_available', True)
         
         # Create new event
         new_event = {
@@ -352,7 +381,7 @@ def add_news_event(datetime_str: str, title: str, currency: str, impact: str) ->
         news_events.sort(key=lambda x: x['datetime'])
         
         # Save back to cache
-        save_news_cache(news_events, cache_data.get('last_updated'))
+        save_news_cache(news_events, cache_data.get('last_updated'), api_available=api_available)
         
         return True
     except Exception as e:
@@ -369,6 +398,7 @@ def clean_old_news(days_to_keep: int = 1) -> None:
     """
     cache_data = load_news_cache()
     news_events = cache_data.get('news', [])
+    api_available = cache_data.get('api_available', True)
     
     if not news_events:
         return
@@ -384,25 +414,37 @@ def clean_old_news(days_to_keep: int = 1) -> None:
         except (KeyError, ValueError):
             continue
     
-    save_news_cache(filtered_events, cache_data.get('last_updated'))
+    save_news_cache(filtered_events, cache_data.get('last_updated'), api_available=api_available)
 
 
-def refresh_daily_news() -> List[Dict]:
+def refresh_daily_news() -> int:
     """
     Refresh news cache with latest HIGH and MEDIUM impact news.
-    Fetches news for today and tomorrow.
+    Fetches news for today.
     
     Returns:
-        List of fetched news events
+        Number of events fetched (0 if API error)
     """
     print("🔄 Refreshing daily news cache...")
     
     # Clean old news first
     clean_old_news(days_to_keep=1)
     
-    # Fetch new news from FCS API or sample data
+    # Fetch new news from FCS API
     all_news = fetch_daily_news()
-    save_news_cache(all_news)
     
-    print(f"✅ News cache refreshed with {len(all_news)} events")
-    return all_news
+    if all_news is None:
+        # API error
+        print("❌ News refresh failed - API error")
+        save_news_cache([], api_available=False)
+        return 0
+    elif len(all_news) == 0:
+        # No events but API working
+        print("✅ News refresh successful - No events today")
+        save_news_cache([], api_available=True)
+        return 0
+    else:
+        # Got events
+        save_news_cache(all_news, api_available=True)
+        print(f"✅ News cache refreshed with {len(all_news)} events")
+        return len(all_news)
