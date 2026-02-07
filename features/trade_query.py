@@ -9,12 +9,11 @@ from features import session_tag, status_rule, user_manager
 
 
 async def show_open_trades(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Display all open trades from user's global CSV (all their accounts)."""
+    """Display all open trades from user's database (all their accounts)."""
     user_id = update.effective_user.id
     
-    # Use user's personal global CSV to show all trades across all accounts
-    global_csv_path = user_manager.get_global_csv_path(user_id)
-    user_open_trades = storage.get_open_trades(global_csv_path)
+    # Get all open trades from database
+    user_open_trades = storage.get_open_trades(user_id)
     
     if not user_open_trades:
         await update.message.reply_html(
@@ -57,12 +56,11 @@ async def show_open_trades(update: Update, context: ContextTypes.DEFAULT_TYPE) -
 
 
 async def show_recent_trades(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Display recent trades from user's global CSV (last 20 trades)."""
+    """Display recent trades from user's database (last 20 trades)."""
     user_id = update.effective_user.id
     
-    # Use user's personal global CSV to show all trades
-    global_csv_path = user_manager.get_global_csv_path(user_id)
-    user_trades = storage.read_all_trades(global_csv_path)
+    # Get all trades from database
+    user_trades = storage.read_all_trades(user_id)
     
     if not user_trades:
         await update.message.reply_html(
@@ -76,8 +74,8 @@ async def show_recent_trades(update: Update, context: ContextTypes.DEFAULT_TYPE)
     user_config = user_manager.load_user_config(user_id)
     accounts_map = {acc['id']: acc['name'] for acc in user_config['accounts']}
     
-    # Get last 20 trades
-    recent_trades = user_trades[-20:][::-1]  # Reverse to show newest first
+    # Get last 20 trades (already sorted newest first by database)
+    recent_trades = user_trades[:20]
     
     message = f"📜 <b>Recent Trades (Last {len(recent_trades)})</b>\n"
     message += f"👤 All Your Accounts\n\n"

@@ -1,92 +1,16 @@
 """
 User Manager - Handle user configurations, pairs, and accounts
 """
-import json
-import os
-import csv
 from typing import List, Dict, Optional
 from datetime import datetime
+from database import get_db_connection
 import config
 import utils
 
 
-def get_user_config_path(user_id: int) -> str:
-    """Get the path to a user's config file."""
-    user_data_dir = os.path.join(os.path.dirname(config.DATA_DIR), 'user_data')
-    os.makedirs(user_data_dir, exist_ok=True)
-    return os.path.join(user_data_dir, f'user_{user_id}_config.json')
-
-
-def get_user_data_dir(user_id: int) -> str:
-    """Get the path to a user's data directory."""
-    user_dir = os.path.join(config.DATA_DIR, f'user_{user_id}')
-    os.makedirs(user_dir, exist_ok=True)
-    return user_dir
-
-
-def load_user_config(user_id: int) -> Dict:
-    """
-    Load user configuration from file.
-    
-    Returns:
-        Dictionary with user_id, pairs, accounts, default_account
-    """
-    config_path = get_user_config_path(user_id)
-    
-    if not os.path.exists(config_path):
-        # Create default config for new user
-        # Ensure user data directory exists
-        user_dir = get_user_data_dir(user_id)
-        
-        default_config = {
-            'user_id': user_id,
-            'email': None,  # No email by default for existing users
-            'pairs': ['EURUSD', 'GBPUSD', 'XAUUSD', 'USDJPY'],  # Default pairs
-            'accounts': [
-                {
-                    'id': 'main',
-                    'name': 'Main Account',
-                    'csv_path': os.path.join(user_dir, 'account_main.csv')
-                }
-            ],
-            'default_account': 'main'
-        }
-        save_user_config(user_id, default_config)
-        return default_config
-    
-    try:
-        with open(config_path, 'r') as f:
-            return json.load(f)
-    except (json.JSONDecodeError, IOError):
-        # Return default if file is corrupted
-        user_dir = get_user_data_dir(user_id)
-        return {
-            'user_id': user_id,
-            'email': None,
-            'pairs': ['EURUSD', 'GBPUSD', 'XAUUSD', 'USDJPY'],
-            'accounts': [
-                {
-                    'id': 'main',
-                    'name': 'Main Account',
-                    'csv_path': os.path.join(user_dir, 'account_main.csv')
-                }
-            ],
-            'default_account': 'main'
-        }
-
-
-def save_user_config(user_id: int, config_data: Dict) -> None:
-    """Save user configuration to file."""
-    config_path = get_user_config_path(user_id)
-    os.makedirs(os.path.dirname(config_path), exist_ok=True)
-    
-    with open(config_path, 'w') as f:
-        json.dump(config_data, f, indent=2)
-
-
 def user_exists_in_registry(telegram_id: int) -> bool:
     """
-    Check if a user already exists in the registry by telegram_id.
+    Check if a user already exists in the database.
     
     Args:
         telegram_id: The user's Telegram ID
@@ -94,16 +18,14 @@ def user_exists_in_registry(telegram_id: int) -> bool:
     Returns:
         True if user exists, False otherwise
     """
-    if not os.path.exists(config.USER_REGISTRY_PATH):
-        return False
-    
     try:
-        with open(config.USER_REGISTRY_PATH, 'r', encoding='utf-8') as f:
-            reader = csv.DictReader(f)
-            for row in reader:
-                if int(row['telegram_id']) == telegram_id:
-                    return True
-        return False
+        with get_db_connection() as cursor:
+            cursor.execute(
+                "SELECT EXISTS(SELECT 1 FROM users WHERE telegram_id = %s)",
+                (telegram_id,)
+            )
+            result = cursor.fetchone()
+            return result['exists'] if result else False
     except Exception as e:
         print(f"❌ Error checking user registry: {e}")
         return False
@@ -111,8 +33,8 @@ def user_exists_in_registry(telegram_id: int) -> bool:
 
 def register_user(telegram_id: int, username: str, first_name: str, last_name: str, email: Optional[str]) -> bool:
     """
-    Register a new user in the registry CSV.
-    Only writes if user doesn't already exist.
+    Register a new user in the database.
+    Only inserts if user doesn't already exist.
     
     Args:
         telegram_id: The user's Telegram ID
@@ -124,227 +46,406 @@ def register_user(telegram_id: int, username: str, first_name: str, last_name: s
     Returns:
         True if user was registered, False if already exists
     """
-    # Check if user already exists
-    if user_exists_in_registry(telegram_id):
-        print(f"ℹ️ User {telegram_id} already registered - skipping")
-        return False
-    
-    # Ensure data directory exists
-    os.makedirs(os.path.dirname(config.USER_REGISTRY_PATH), exist_ok=True)
-    
-    # Check if file exists to determine if we need headers
-    file_exists = os.path.exists(config.USER_REGISTRY_PATH)
-    
     try:
-        with open(config.USER_REGISTRY_PATH, 'a', newline='', encoding='utf-8') as f:
-            fieldnames = ['telegram_id', 'username', 'first_name', 'last_name', 'email', 'registration_date']
-            writer = csv.DictWriter(f, fieldnames=fieldnames)
+        with get_db_connection() as cursor:
+            # Use INSERT IGNORE to prevent duplicates (MySQL syntax)
+            cursor.execute("""
+                INSERT IGNORE INTO users (telegram_id, username, first_name, last_name, email, registration_date, config)
+                VALUES (%s, %s, %s, %s, %s, %s, %s)
+            """, (
+                telegram_id,
+                username or '',
+                first_name or '',
+                last_name or '',
+                email or '',
+                datetime.now(),
+                '{"pairs": ["EURUSD", "GBPUSD", "XAUUSD", "USDJPY"]}'  # Default pairs
+            ))
             
-            # Write header if file is new
-            if not file_exists:
-                writer.writeheader()
-            
-            # Write user data
-            writer.writerow({
-                'telegram_id': telegram_id,
-                'username': username or '',
-                'first_name': first_name or '',
-                'last_name': last_name or '',
-                'email': email or '',
-                'registration_date': utils.get_current_datetime_string()
-            })
-            
-        print(f"✅ User {telegram_id} registered successfully")
-        return True
-        
+            # Check if row was inserted (affected rows > 0)
+            if cursor.rowcount > 0:
+                user_id = cursor.lastrowid
+                
+                # Create default account
+                cursor.execute("""
+                    INSERT INTO accounts (user_id, account_id, account_name, is_default)
+                    VALUES (%s, %s, %s, %s)
+                """, (user_id, 'main', 'Main Account', True))
+                
+                # Add default pairs
+                default_pairs = ['EURUSD', 'GBPUSD', 'XAUUSD', 'USDJPY']
+                for pair in default_pairs:
+                    cursor.execute("""
+                        INSERT IGNORE INTO pairs (user_id, pair_name)
+                        VALUES (%s, %s)
+                    """, (user_id, pair))
+                
+                print(f"✅ User {telegram_id} registered successfully")
+                return True
+            else:
+                print(f"ℹ️ User {telegram_id} already registered - skipping")
+                return False
+                
     except Exception as e:
         print(f"❌ Error registering user: {e}")
         return False
 
 
-def get_user_pairs(user_id: int) -> List[str]:
+def load_user_config(telegram_id: int) -> Dict:
+    """
+    Load user configuration from database.
+    
+    Returns:
+        Dictionary with user_id, email, pairs, accounts, default_account
+    """
+    try:
+        with get_db_connection() as cursor:
+            # Get user info
+            cursor.execute("""
+                SELECT id, telegram_id, email FROM users WHERE telegram_id = %s
+            """, (telegram_id,))
+            user = cursor.fetchone()
+            
+            if not user:
+                return None
+            
+            user_id = user['id']
+            
+            # Get pairs
+            cursor.execute("""
+                SELECT pair_name FROM pairs WHERE user_id = %s ORDER BY created_at
+            """, (user_id,))
+            pairs = [row['pair_name'] for row in cursor.fetchall()]
+            
+            # Get accounts
+            cursor.execute("""
+                SELECT account_id as id, account_name as name, is_default 
+                FROM accounts WHERE user_id = %s ORDER BY created_at
+            """, (user_id,))
+            accounts = cursor.fetchall()
+            
+            # Find default account
+            default_account = 'main'
+            for acc in accounts:
+                if acc['is_default']:
+                    default_account = acc['id']
+                    break
+            
+            return {
+                'user_id': telegram_id,
+                'email': user['email'],
+                'pairs': pairs,
+                'accounts': accounts,
+                'default_account': default_account
+            }
+    except Exception as e:
+        print(f"❌ Error loading user config: {e}")
+        return None
+
+
+def save_user_config(telegram_id: int, config_data: Dict) -> None:
+    """
+    Save user configuration to database.
+    (Email updates only - pairs and accounts use dedicated functions)
+    """
+    try:
+        with get_db_connection() as cursor:
+            cursor.execute("""
+                UPDATE users SET email = %s WHERE telegram_id = %s
+            """, (config_data.get('email'), telegram_id))
+    except Exception as e:
+        print(f"❌ Error saving user config: {e}")
+
+
+def get_user_pairs(telegram_id: int) -> List[str]:
     """Get list of user's favorite pairs."""
-    config = load_user_config(user_id)
-    return config.get('pairs', [])
+    try:
+        with get_db_connection() as cursor:
+            cursor.execute("""
+                SELECT pair_name FROM pairs 
+                WHERE user_id = (SELECT id FROM users WHERE telegram_id = %s)
+                ORDER BY created_at
+            """, (telegram_id,))
+            return [row['pair_name'] for row in cursor.fetchall()]
+    except Exception as e:
+        print(f"❌ Error getting user pairs: {e}")
+        return []
 
 
-def add_user_pair(user_id: int, pair: str) -> bool:
+def add_user_pair(telegram_id: int, pair: str) -> bool:
     """
     Add a pair to user's favorites.
     
     Returns:
         True if added, False if already exists
     """
-    config = load_user_config(user_id)
-    pairs = config.get('pairs', [])
-    
-    pair = pair.upper().strip()
-    
-    if pair in pairs:
+    try:
+        pair = pair.upper().strip()
+        
+        with get_db_connection() as cursor:
+            cursor.execute("""
+                INSERT IGNORE INTO pairs (user_id, pair_name)
+                SELECT id, %s FROM users WHERE telegram_id = %s
+            """, (pair, telegram_id))
+            
+            return cursor.rowcount > 0
+    except Exception as e:
+        print(f"❌ Error adding pair: {e}")
         return False
-    
-    pairs.append(pair)
-    config['pairs'] = pairs
-    save_user_config(user_id, config)
-    return True
 
 
-def remove_user_pair(user_id: int, pair: str) -> bool:
+def remove_user_pair(telegram_id: int, pair: str) -> bool:
     """
     Remove a pair from user's favorites.
     
     Returns:
         True if removed, False if not found
     """
-    config = load_user_config(user_id)
-    pairs = config.get('pairs', [])
-    
-    pair = pair.upper().strip()
-    
-    if pair not in pairs:
+    try:
+        pair = pair.upper().strip()
+        
+        with get_db_connection() as cursor:
+            cursor.execute("""
+                DELETE FROM pairs 
+                WHERE user_id = (SELECT id FROM users WHERE telegram_id = %s)
+                AND pair_name = %s
+            """, (telegram_id, pair))
+            
+            return cursor.rowcount > 0
+    except Exception as e:
+        print(f"❌ Error removing pair: {e}")
         return False
-    
-    pairs.remove(pair)
-    config['pairs'] = pairs
-    save_user_config(user_id, config)
-    return True
 
 
-def get_user_accounts(user_id: int) -> List[Dict]:
+def get_user_accounts(telegram_id: int) -> List[Dict]:
     """Get list of user's trading accounts."""
-    config = load_user_config(user_id)
-    return config.get('accounts', [])
+    try:
+        with get_db_connection() as cursor:
+            cursor.execute("""
+                SELECT account_id as id, account_name as name, is_default
+                FROM accounts 
+                WHERE user_id = (SELECT id FROM users WHERE telegram_id = %s)
+                ORDER BY created_at
+            """, (telegram_id,))
+            return cursor.fetchall()
+    except Exception as e:
+        print(f"❌ Error getting user accounts: {e}")
+        return []
 
 
-def get_account_by_id(user_id: int, account_id: str) -> Optional[Dict]:
+def get_account_by_id(telegram_id: int, account_id: str) -> Optional[Dict]:
     """Get a specific account by ID."""
-    accounts = get_user_accounts(user_id)
-    for account in accounts:
-        if account['id'] == account_id:
-            return account
-    return None
+    try:
+        with get_db_connection() as cursor:
+            cursor.execute("""
+                SELECT account_id as id, account_name as name, is_default
+                FROM accounts 
+                WHERE user_id = (SELECT id FROM users WHERE telegram_id = %s)
+                AND account_id = %s
+            """, (telegram_id, account_id))
+            return cursor.fetchone()
+    except Exception as e:
+        print(f"❌ Error getting account: {e}")
+        return None
 
 
-def add_user_account(user_id: int, account_name: str) -> Dict:
+def add_user_account(telegram_id: int, account_name: str) -> Dict:
     """
     Add a new trading account for user.
     
     Returns:
         The created account dictionary
     """
-    config = load_user_config(user_id)
-    accounts = config.get('accounts', [])
-    
-    # Generate unique account ID
-    account_id = f'acc{len(accounts) + 1}'
-    
-    # Get user's data directory
-    user_dir = get_user_data_dir(user_id)
-    
-    new_account = {
-        'id': account_id,
-        'name': account_name,
-        'csv_path': os.path.join(user_dir, f'account_{account_id}.csv')
-    }
-    
-    accounts.append(new_account)
-    config['accounts'] = accounts
-    save_user_config(user_id, config)
-    
-    return new_account
+    try:
+        with get_db_connection() as cursor:
+            # Get user's existing account count
+            cursor.execute("""
+                SELECT COUNT(*) as count FROM accounts
+                WHERE user_id = (SELECT id FROM users WHERE telegram_id = %s)
+            """, (telegram_id,))
+            
+            count = cursor.fetchone()['count']
+            account_id = f'acc{count + 1}'
+            
+            # Insert new account
+            cursor.execute("""
+                INSERT INTO accounts (user_id, account_id, account_name, is_default)
+                SELECT id, %s, %s, %s FROM users WHERE telegram_id = %s
+            """, (account_id, account_name, False, telegram_id))
+            
+            # Get the created account
+            cursor.execute("""
+                SELECT account_id, account_name, is_default
+                FROM accounts 
+                WHERE user_id = (SELECT id FROM users WHERE telegram_id = %s)
+                AND account_id = %s
+            """, (telegram_id, account_id))
+            
+            result = cursor.fetchone()
+            return {
+                'id': result['account_id'],
+                'name': result['account_name'],
+                'is_default': result['is_default']
+            }
+    except Exception as e:
+        print(f"❌ Error adding account: {e}")
+        return None
 
 
-def remove_user_account(user_id: int, account_id: str) -> bool:
+def remove_user_account(telegram_id: int, account_id: str) -> bool:
     """
     Remove a trading account.
     
     Returns:
         True if removed, False if not found or is last account
     """
-    config = load_user_config(user_id)
-    accounts = config.get('accounts', [])
-    
-    # Don't allow removing last account
-    if len(accounts) <= 1:
-        return False
-    
-    # Find and remove account
-    for i, account in enumerate(accounts):
-        if account['id'] == account_id:
-            accounts.pop(i)
-            config['accounts'] = accounts
+    try:
+        with get_db_connection() as cursor:
+            # Don't allow removing last account
+            cursor.execute("""
+                SELECT COUNT(*) as count FROM accounts
+                WHERE user_id = (SELECT id FROM users WHERE telegram_id = %s)
+            """, (telegram_id,))
             
-            # Update default if removed account was default
-            if config.get('default_account') == account_id:
-                config['default_account'] = accounts[0]['id']
+            count = cursor.fetchone()['count']
+            if count <= 1:
+                return False
             
-            save_user_config(user_id, config)
+            # Check if this is the default account
+            cursor.execute("""
+                SELECT is_default FROM accounts
+                WHERE user_id = (SELECT id FROM users WHERE telegram_id = %s)
+                AND account_id = %s
+            """, (telegram_id, account_id))
+            
+            account = cursor.fetchone()
+            if not account:
+                return False
+            
+            is_default = account['is_default']
+            
+            # Delete account
+            cursor.execute("""
+                DELETE FROM accounts
+                WHERE user_id = (SELECT id FROM users WHERE telegram_id = %s)
+                AND account_id = %s
+            """, (telegram_id, account_id))
+            
+            # If deleted account was default, set first remaining account as default
+            if is_default:
+                cursor.execute("""
+                    UPDATE accounts
+                    SET is_default = TRUE
+                    WHERE user_id = (SELECT id FROM users WHERE telegram_id = %s)
+                    AND id = (
+                        SELECT id FROM accounts 
+                        WHERE user_id = (SELECT id FROM users WHERE telegram_id = %s)
+                        ORDER BY created_at LIMIT 1
+                    )
+                """, (telegram_id, telegram_id))
+            
             return True
-    
-    return False
+    except Exception as e:
+        print(f"❌ Error removing account: {e}")
+        return False
 
 
-def rename_user_account(user_id: int, account_id: str, new_name: str) -> bool:
+def rename_user_account(telegram_id: int, account_id: str, new_name: str) -> bool:
     """
     Rename a trading account.
     
     Returns:
         True if renamed, False if account not found
     """
-    config = load_user_config(user_id)
-    accounts = config.get('accounts', [])
-    
-    for account in accounts:
-        if account['id'] == account_id:
-            account['name'] = new_name
-            config['accounts'] = accounts
-            save_user_config(user_id, config)
-            return True
-    
-    return False
+    try:
+        with get_db_connection() as cursor:
+            cursor.execute("""
+                UPDATE accounts
+                SET account_name = %s
+                WHERE user_id = (SELECT id FROM users WHERE telegram_id = %s)
+                AND account_id = %s
+            """, (new_name, telegram_id, account_id))
+            
+            return cursor.rowcount > 0
+    except Exception as e:
+        print(f"❌ Error renaming account: {e}")
+        return False
 
 
-def get_default_account(user_id: int) -> Optional[Dict]:
+def get_default_account(telegram_id: int) -> Optional[Dict]:
     """Get user's default account."""
-    config = load_user_config(user_id)
-    default_id = config.get('default_account')
-    
-    if not default_id:
-        accounts = config.get('accounts', [])
-        if accounts:
-            return accounts[0]
+    try:
+        with get_db_connection() as cursor:
+            cursor.execute("""
+                SELECT account_id as id, account_name as name, is_default
+                FROM accounts 
+                WHERE user_id = (SELECT id FROM users WHERE telegram_id = %s)
+                AND is_default = TRUE
+            """, (telegram_id,))
+            
+            result = cursor.fetchone()
+            if not result:
+                # Fallback to first account
+                cursor.execute("""
+                    SELECT account_id as id, account_name as name, is_default
+                    FROM accounts 
+                    WHERE user_id = (SELECT id FROM users WHERE telegram_id = %s)
+                    ORDER BY created_at LIMIT 1
+                """, (telegram_id,))
+                result = cursor.fetchone()
+            
+            return result
+    except Exception as e:
+        print(f"❌ Error getting default account: {e}")
         return None
-    
-    return get_account_by_id(user_id, default_id)
 
 
-def set_default_account(user_id: int, account_id: str) -> bool:
+def set_default_account(telegram_id: int, account_id: str) -> bool:
     """
     Set user's default account.
     
     Returns:
         True if set, False if account not found
     """
-    # Verify account exists
-    account = get_account_by_id(user_id, account_id)
-    if not account:
+    try:
+        with get_db_connection() as cursor:
+            # Verify account exists
+            cursor.execute("""
+                SELECT id FROM accounts
+                WHERE user_id = (SELECT id FROM users WHERE telegram_id = %s)
+                AND account_id = %s
+            """, (telegram_id, account_id))
+            
+            if not cursor.fetchone():
+                return False
+            
+            # Clear all defaults for this user
+            cursor.execute("""
+                UPDATE accounts
+                SET is_default = FALSE
+                WHERE user_id = (SELECT id FROM users WHERE telegram_id = %s)
+            """, (telegram_id,))
+            
+            # Set new default
+            cursor.execute("""
+                UPDATE accounts
+                SET is_default = TRUE
+                WHERE user_id = (SELECT id FROM users WHERE telegram_id = %s)
+                AND account_id = %s
+            """, (telegram_id, account_id))
+            
+            return True
+    except Exception as e:
+        print(f"❌ Error setting default account: {e}")
         return False
-    
-    config = load_user_config(user_id)
-    config['default_account'] = account_id
-    save_user_config(user_id, config)
-    return True
 
 
-def get_account_csv_path(user_id: int, account_id: str) -> Optional[str]:
-    """Get the CSV file path for a specific account."""
-    account = get_account_by_id(user_id, account_id)
-    if account:
-        return account['csv_path']
+# Legacy compatibility functions (no longer used but kept for backward compatibility)
+def get_account_csv_path(telegram_id: int, account_id: str) -> Optional[str]:
+    """Deprecated: Returns None (CSV no longer used)."""
     return None
 
 
-def get_global_csv_path(user_id: int) -> str:
-    """Get the path to the user's personal global trades CSV."""
-    user_dir = get_user_data_dir(user_id)
-    return os.path.join(user_dir, 'global.csv')
+def get_global_csv_path(telegram_id: int) -> str:
+    """Deprecated: Returns empty string (CSV no longer used)."""
+    return ""

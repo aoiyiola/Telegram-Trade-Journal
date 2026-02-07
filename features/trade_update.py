@@ -4,6 +4,7 @@ Trade update module - Update trade results (W/L/BE)
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes, ConversationHandler, CallbackQueryHandler
 import storage
+import utils
 from features import status_rule, user_manager
 
 
@@ -12,12 +13,11 @@ SELECT_TRADE, SELECT_RESULT = range(2)
 
 
 async def start_update_trade(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Start the trade update conversation - show open trades from user's global CSV."""
+    """Start the trade update conversation - show open trades from database."""
     user_id = update.effective_user.id
     
-    # Get open trades from user's personal global CSV
-    global_csv_path = user_manager.get_global_csv_path(user_id)
-    open_trades = storage.get_open_trades(global_csv_path)
+    # Get open trades from database
+    open_trades = storage.get_open_trades(user_id)
     
     if not open_trades:
         await update.message.reply_html(
@@ -32,7 +32,7 @@ async def start_update_trade(update: Update, context: ContextTypes.DEFAULT_TYPE)
     for trade in open_trades[:10]:  # Limit to 10 to avoid keyboard size limits
         # Include account name for clarity
         button_text = f"#{trade['trade_id']} - {trade['pair']} {trade['direction']}"
-        keyboard.append([InlineKeyboardButton(button_text, callback_data=f"trade_{trade['trade_id']}_{trade.get('account_id', '')}")])
+        keyboard.append([InlineKeyboardButton(button_text, callback_data=f"trade_{trade['trade_id']}")])
     
     keyboard.append([InlineKeyboardButton("❌ Cancel", callback_data="trade_cancel")])
     reply_markup = InlineKeyboardMarkup(keyboard)
@@ -55,18 +55,14 @@ async def receive_trade_selection(update: Update, context: ContextTypes.DEFAULT_
         await query.edit_message_text("❌ Update cancelled.")
         return ConversationHandler.END
     
-    # Extract trade ID and account ID from callback data
+    # Extract trade ID from callback data
     parts = query.data.split('_')
-    trade_id = int(parts[1])
-    account_id = parts[2] if len(parts) > 2 else None
+    trade_id = parts[1]  # Keep as string
     
     context.user_data['update_trade_id'] = trade_id
-    context.user_data['update_account_id'] = account_id
     
-    # Get trade details from user's global CSV
-    global_csv_path = user_manager.get_global_csv_path(update.effective_user.id)
-    all_trades = storage.read_all_trades(global_csv_path)
-    trade = next((t for t in all_trades if int(t['trade_id']) == trade_id), None)
+    # Get trade details from database
+    trade = storage.get_trade_by_id(trade_id, update.effective_user.id)
     
     if not trade:
         await query.edit_message_text("❌ Trade not found.")
@@ -116,7 +112,6 @@ async def receive_result(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     # Extract result
     result = query.data.split('_')[1]  # "result_W" -> "W"
     trade_id = context.user_data['update_trade_id']
-    account_id = context.user_data.get('update_account_id')
     user_id = update.effective_user.id
     
     # Calculate new status
@@ -124,21 +119,16 @@ async def receive_result(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     
     updates = {
         'result': result,
-        'status': new_status
+        'status': new_status,
+        'exit_datetime': utils.get_current_datetime_string()
     }
     
-    # Update in user's global CSV
-    global_csv_path = user_manager.get_global_csv_path(user_id)
-    success_global = storage.update_trade(trade_id, updates, global_csv_path)
+    # Update in database
+    success = storage.update_trade(trade_id, updates, user_id)
     
-    # Update in account CSV
-    account_csv_path = user_manager.get_account_csv_path(user_id, account_id)
-    success_account = storage.update_trade(trade_id, updates, account_csv_path)
-    
-    if success_global and success_account:
+    if success:
         # Get updated trade details for confirmation
-        all_trades = storage.read_all_trades(global_csv_path)
-        trade = next((t for t in all_trades if int(t['trade_id']) == trade_id), None)
+        trade = storage.get_trade_by_id(trade_id, user_id)
         
         result_display = status_rule.format_result_display(result)
         status_display = status_rule.format_status_display(new_status)

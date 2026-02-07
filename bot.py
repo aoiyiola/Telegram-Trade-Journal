@@ -15,7 +15,16 @@ from telegram.ext import (
     ContextTypes
 )
 import config
+import database
 from features import trade_logger, trade_query, trade_update, news_rule, admin_commands, pair_manager, account_manager, user_manager
+
+# Initialize database on startup
+try:
+    database.init_database()
+    print("✅ Database initialized successfully")
+except Exception as e:
+    print(f"❌ Failed to initialize database: {e}")
+    print(f"⚠️ Please make sure DATABASE_URL is set in environment variables")
 
 # Initialize news cache on startup
 try:
@@ -46,9 +55,15 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         context.bot_data['subscribed_users'] = set()
     context.bot_data['subscribed_users'].add(chat_id)
     
-    # Check if this is first time user (no config exists)
+    # Check if user is already registered in the registry (more reliable than config file)
+    user_exists = user_manager.user_exists_in_registry(user_id)
+    
+    # Check if config file exists
     config_path = user_manager.get_user_config_path(user_id)
-    is_new_user = not os.path.exists(config_path)
+    config_exists = os.path.exists(config_path)
+    
+    # User is new ONLY if they're not in registry AND no config exists
+    is_new_user = not user_exists and not config_exists
     
     if is_new_user:
         # New user - ask for email first
@@ -61,14 +76,19 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             "• Account recovery and security\n"
             "• Important trade notifications\n"
             "• Weekly performance reports\n\n"
-            "Please send me your email address:\n"
+            "Please provide me your email address:\n"
             "Example: <i>yourname@example.com</i>\n\n"
-            "Or type <b>/skip</b> to skip email (not recommended)"
+        
         )
         # Store state for conversation
         context.user_data['awaiting_email'] = True
     else:
         # Existing user - show regular welcome
+        # If config missing but user exists in registry, recreate default config
+        if not config_exists:
+            print(f"⚠️ Config missing for user {user_id} but exists in registry - recreating default config")
+            user_manager.load_user_config(user_id)  # This creates default config
+        
         # Ensure existing user is registered in the registry (for users who joined before registry feature)
         user_config = user_manager.load_user_config(user_id)
         user_email = user_config.get('email')
@@ -82,7 +102,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         )
         
         welcome_message = (
-            f"👋 <b>Welcome back {user.mention_html()}!</b>\n\n"
+            f"👋 <b>Hi {user.mention_html()}!</b>\n\n"
             "📊 <b>Trading Journal Bot</b>\n"
             "Your personal trading assistant for disciplined trade management.\n\n"
             "✨ <b>What I can do:</b>\n"

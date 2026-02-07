@@ -11,7 +11,13 @@
 6. Add environment variables:
    - `TELEGRAM_BOT_TOKEN`
    - `FCS_API_KEY` (optional)
-7. Deploy!
+7. **IMPORTANT - Add Persistent Volume:**
+   - Click on your service
+   - Go to "Data" tab
+   - Click "Add Volume"
+   - Mount Path: `/app/data`
+   - This ensures user data persists between deployments
+8. Deploy!
 
 ### Option 2: Render.com (Free Tier Available)
 1. Push code to GitHub

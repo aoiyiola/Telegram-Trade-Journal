@@ -230,11 +230,8 @@ async def receive_notes(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
     tp = context.user_data['tp']
     
     # Auto-generate data
-    account_csv_path = account['csv_path']
-    global_csv_path = user_manager.get_global_csv_path(update.effective_user.id)
-    
-    # Get unified trade ID from global CSV (same ID for both CSVs)
-    trade_id = storage.get_next_trade_id(global_csv_path)
+    telegram_id = update.effective_user.id
+    trade_id = storage.get_next_trade_id(telegram_id)
     
     datetime_str = utils.get_current_datetime_string()
     trade_datetime = utils.get_current_uk_time()
@@ -243,9 +240,10 @@ async def receive_notes(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
     news_risk = news_rule.check_news_risk(trade_datetime)
     result = ''
     
-    # Create base trade data
+    # Create trade data
     trade_data = {
         'trade_id': trade_id,
+        'account_id': account['id'],
         'datetime': datetime_str,
         'pair': pair,
         'direction': direction,
@@ -259,17 +257,10 @@ async def receive_notes(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
         'notes': notes
     }
     
-    # Save to account CSV
-    account_success = storage.save_trade(trade_data, account_csv_path, is_global=False)
+    # Save to database
+    success = storage.save_trade(trade_data, telegram_id)
     
-    # Add account_id for global CSV (no need for user_id since each user has their own global CSV)
-    global_trade_data = trade_data.copy()
-    global_trade_data['account_id'] = account['id']
-    
-    # Save to global CSV with additional tracking fields
-    global_success = storage.save_trade(global_trade_data, global_csv_path, is_global=True)
-    
-    if account_success and global_success:
+    if success:
         # Format confirmation message
         session_display = session_tag.format_session_display(session)
         status_display = status_rule.format_status_display(status)
