@@ -298,3 +298,72 @@ async def send_daily_news_summary(context: ContextTypes.DEFAULT_TYPE) -> None:
             )
         except Exception as e:
             print(f"Failed to send daily summary to {chat_id}: {e}")
+
+
+async def generate_dashboard_link(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Generate a secure dashboard link for the user."""
+    try:
+        import web_server
+        import config
+        
+        user_id = update.effective_user.id
+        
+        # Check if user already has a valid token
+        is_reused = False
+        if user_id in web_server.user_tokens:
+            existing_token = web_server.user_tokens[user_id]
+            if existing_token in web_server.active_tokens:
+                token_data = web_server.active_tokens[existing_token]
+                from datetime import datetime, timedelta
+                if datetime.now() + timedelta(hours=1) < token_data['expires']:
+                    is_reused = True
+        
+        # Generate or reuse token
+        token = web_server.generate_dashboard_token(user_id, expires_hours=24)
+        
+        # Get base URL from config or environment
+        import os
+        base_url = os.getenv('RAILWAY_PUBLIC_DOMAIN', 'localhost:8080')
+        if not base_url.startswith('http'):
+            base_url = f'https://{base_url}'
+        
+        dashboard_url = f"{base_url}/dashboard?token={token}"
+        
+        if is_reused:
+            message = (
+                "📊 <b>Your Dashboard Link</b>\n\n"
+                f"🔗 <a href='{dashboard_url}'>Open Dashboard</a>\n\n"
+                "♻️ <b>Same link as before</b> - Still valid!\n"
+                "⏰ <b>Expires in:</b> More than 1 hour remaining\n\n"
+                "💡 <i>No need to generate new links frequently</i>\n"
+                "📌 <i>Bookmark this link for quick access</i>"
+            )
+        else:
+            message = (
+                "📊 <b>Your Dashboard is Ready!</b>\n\n"
+                f"🔗 Click here to view your trading dashboard:\n"
+                f"<a href='{dashboard_url}'>Open Dashboard</a>\n\n"
+                "⏰ <b>Link expires in:</b> 24 hours\n"
+                "🔒 <b>Security:</b> This link is unique to you\n\n"
+                "📱 <b>Features:</b>\n"
+                "• Real-time statistics\n"
+                "• Performance charts\n"
+                "• Trade history\n"
+                "• Session analysis\n"
+                "• Mobile & desktop friendly\n\n"
+                "💡 <i>This link stays valid - no need to request again</i>"
+            )
+        
+        await update.message.reply_html(
+            message,
+            disable_web_page_preview=False
+        )
+        
+        print(f"✅ Dashboard link {'reused' if is_reused else 'generated'} for user {user_id}")
+        
+    except Exception as e:
+        print(f"❌ Error generating dashboard link: {e}")
+        await update.message.reply_html(
+            "❌ <b>Error generating dashboard link</b>\n\n"
+            "Please try again in a moment."
+        )

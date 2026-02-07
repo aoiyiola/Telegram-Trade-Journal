@@ -295,6 +295,7 @@ async def set_user_commands(application: Application, telegram_id: int) -> None:
     """Set full command menu for registered users."""
     full_commands = [
         BotCommand("start", "🏠 Welcome screen"),
+        BotCommand("dashboard", "📊 View web dashboard"),
         BotCommand("newtrade", "📝 Log a new trade"),
         BotCommand("managepairs", "💱 Manage trading pairs"),
         BotCommand("manageaccounts", "📊 Manage accounts"),
@@ -334,6 +335,7 @@ def main() -> None:
     application.add_handler(CommandHandler("recenttrades", trade_query.show_recent_trades))
     application.add_handler(CommandHandler("news", admin_commands.show_upcoming_news))
     application.add_handler(CommandHandler("addnews", admin_commands.add_news_event_command))
+    application.add_handler(CommandHandler("dashboard", admin_commands.generate_dashboard_link))
     
     # Pair management conversation handler
     pair_conv_handler = ConversationHandler(
