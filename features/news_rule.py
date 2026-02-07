@@ -67,12 +67,11 @@ def fetch_fcs_api_news(date_str: str) -> List[Dict]:
         print("⚠️ FCS_API_KEY not set")
         return None  # Return None to indicate API unavailable
     
-    url = "https://fcsapi.com/api-v3/economy/calendar"
+    url = "https://fcsapi.com/api-v3/forex/economy_cal"
     params = {
         'access_key': config.FCS_API_KEY,
         'date_from': date_str,
-        'date_to': date_str,
-        'impact': 'high,medium'  # Only HIGH and MEDIUM impact
+        'date_to': date_str
     }
     
     try:
@@ -91,7 +90,12 @@ def fetch_fcs_api_news(date_str: str) -> List[Dict]:
         print(f"📊 FCS API returned {len(raw_events)} total events")
         
         for event in raw_events:
-            # Parse FCS API response
+            # Parse FCS API response (economy_cal endpoint)
+            # Filter for HIGH and MEDIUM impact only
+            impact = event.get('impact', '').upper()
+            if impact not in ['HIGH', 'MEDIUM']:
+                continue
+            
             event_date = event.get('date', '')
             event_time = event.get('time', '')
             
@@ -108,9 +112,9 @@ def fetch_fcs_api_news(date_str: str) -> List[Dict]:
             
             news_events.append({
                 'datetime': formatted_datetime,
-                'title': event.get('name', 'Unknown Event'),
+                'title': event.get('event', event.get('title', 'Unknown Event')),
                 'currency': event.get('country', 'USD'),
-                'impact': event.get('impact', 'MEDIUM').upper()
+                'impact': impact
             })
         
         print(f"✅ Fetched {len(news_events)} high/medium impact events from FCS API for {date_str}")

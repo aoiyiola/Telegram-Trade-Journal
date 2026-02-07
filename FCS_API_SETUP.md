@@ -73,6 +73,16 @@ For this bot's daily usage, **free tier is perfect forever**.
 - FCS API might be temporarily down
 - Bot will use cached data from yesterday
 
+## API Endpoint Details
+**Correct Endpoint**: `https://fcsapi.com/api-v3/forex/economy_cal`
+
+**Parameters**:
+- `access_key`: Your FCS API key
+- `from`: Start date (format: YYYY-MM-DD)
+- `to`: End date (format: YYYY-MM-DD)
+
+**Impact Levels**: The bot automatically filters for HIGH and MEDIUM impact events.
+
 ## Need Help?
 - FCS API Docs: https://fcsapi.com/document/economy-api
 - Support: support@fcsapi.com
@@ -86,9 +96,11 @@ For this bot's daily usage, **free tier is perfect forever**.
     {
       "date": "2026-02-04",
       "time": "13:30:00",
-      "name": "US Non-Farm Payrolls",
+      "event": "US Non-Farm Payrolls",
       "country": "USD",
-      "impact": "HIGH"
+      "impact": "HIGH",
+      "forecast": "250K",
+      "previous": "240K"
     }
   ]
 }

@@ -21,11 +21,11 @@ def user_exists_in_registry(telegram_id: int) -> bool:
     try:
         with get_db_connection() as cursor:
             cursor.execute(
-                "SELECT EXISTS(SELECT 1 FROM users WHERE telegram_id = %s)",
+                "SELECT COUNT(*) as count FROM users WHERE telegram_id = %s",
                 (telegram_id,)
             )
             result = cursor.fetchone()
-            return result['exists'] if result else False
+            return result['count'] > 0 if result else False
     except Exception as e:
         print(f"❌ Error checking user registry: {e}")
         return False

@@ -101,6 +101,9 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             email=user_email
         )
         
+        # Show full command menu to registered user
+        await set_user_commands(context.application, chat_id)
+        
         welcome_message = (
             f"👋 <b>Hi {user.mention_html()}!</b>\n\n"
             "📊 <b>Trading Journal Bot</b>\n"
@@ -230,6 +233,9 @@ async def handle_setup_account_name(update: Update, context: ContextTypes.DEFAUL
     context.user_data.pop('awaiting_account_name', None)
     context.user_data.pop('user_email', None)
     
+    # Show full command menu to newly registered user
+    await set_user_commands(context.application, update.effective_chat.id)
+    
     # Send success message
     await update.message.reply_html(
         f"✅ <b>Setup Complete!</b>\n\n"
@@ -312,7 +318,17 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
 
 async def post_init(application: Application) -> None:
     """Set bot commands in the menu after initialization."""
-    commands = [
+    # Default commands (only start for new users)
+    default_commands = [
+        BotCommand("start", "🏠 Start the bot"),
+    ]
+    await application.bot.set_my_commands(default_commands)
+    logger.info("✅ Bot commands menu set (default)")
+
+
+async def set_user_commands(application: Application, telegram_id: int) -> None:
+    """Set full command menu for registered users."""
+    full_commands = [
         BotCommand("start", "🏠 Welcome screen"),
         BotCommand("newtrade", "📝 Log a new trade"),
         BotCommand("managepairs", "💱 Manage trading pairs"),
@@ -324,8 +340,16 @@ async def post_init(application: Application) -> None:
         BotCommand("addnews", "➕ Add news event manually"),
         BotCommand("help", "📚 Help guide"),
     ]
-    await application.bot.set_my_commands(commands)
-    logger.info("✅ Bot commands menu set")
+    try:
+        # Set commands for this specific user
+        from telegram import BotCommandScopeChat
+        await application.bot.set_my_commands(
+            full_commands,
+            scope=BotCommandScopeChat(chat_id=telegram_id)
+        )
+        logger.info(f"✅ Full commands set for user {telegram_id}")
+    except Exception as e:
+        logger.error(f"❌ Error setting commands for user: {e}")
 
 
 def main() -> None:
