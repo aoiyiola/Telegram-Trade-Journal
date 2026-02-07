@@ -55,15 +55,9 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         context.bot_data['subscribed_users'] = set()
     context.bot_data['subscribed_users'].add(chat_id)
     
-    # Check if user is already registered in the registry (more reliable than config file)
+    # Check if user is already registered in the database
     user_exists = user_manager.user_exists_in_registry(user_id)
-    
-    # Check if config file exists
-    config_path = user_manager.get_user_config_path(user_id)
-    config_exists = os.path.exists(config_path)
-    
-    # User is new ONLY if they're not in registry AND no config exists
-    is_new_user = not user_exists and not config_exists
+    is_new_user = not user_exists
     
     if is_new_user:
         # New user - ask for email first
@@ -84,23 +78,6 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         context.user_data['awaiting_email'] = True
     else:
         # Existing user - show regular welcome
-        # If config missing but user exists in registry, recreate default config
-        if not config_exists:
-            print(f"⚠️ Config missing for user {user_id} but exists in registry - recreating default config")
-            user_manager.load_user_config(user_id)  # This creates default config
-        
-        # Ensure existing user is registered in the registry (for users who joined before registry feature)
-        user_config = user_manager.load_user_config(user_id)
-        user_email = user_config.get('email')
-        
-        user_manager.register_user(
-            telegram_id=user_id,
-            username=user.username,
-            first_name=user.first_name,
-            last_name=user.last_name,
-            email=user_email
-        )
-        
         # Show full command menu to registered user
         await set_user_commands(context.application, chat_id)
         
@@ -200,26 +177,10 @@ async def handle_setup_account_name(update: Update, context: ContextTypes.DEFAUL
             return
         account_name = message_text
     
-    # Create user config with custom account name and email
-    user_dir = user_manager.get_user_data_dir(user_id)
+    # Get email from context
     user_email = context.user_data.get('user_email')
     
-    default_config = {
-        'user_id': user_id,
-        'email': user_email,
-        'pairs': ['EURUSD', 'GBPUSD', 'XAUUSD', 'USDJPY'],
-        'accounts': [
-            {
-                'id': 'main',
-                'name': account_name,
-                'csv_path': os.path.join(user_dir, 'account_main.csv')
-            }
-        ],
-        'default_account': 'main'
-    }
-    user_manager.save_user_config(user_id, default_config)
-    
-    # Register user in the admin registry CSV (checks for duplicates automatically)
+    # Register user in database (creates user with default pairs and account)
     user = update.effective_user
     user_manager.register_user(
         telegram_id=user_id,
@@ -228,6 +189,10 @@ async def handle_setup_account_name(update: Update, context: ContextTypes.DEFAUL
         last_name=user.last_name,
         email=user_email
     )
+    
+    # Update account name if not default
+    if account_name != 'Main Account':
+        user_manager.rename_user_account(user_id, 'main', account_name)
     
     # Clear state
     context.user_data.pop('awaiting_account_name', None)
