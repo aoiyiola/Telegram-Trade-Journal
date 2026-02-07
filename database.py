@@ -126,16 +126,25 @@ def init_database():
             )
         """)
         
-        # Create indexes for better performance
-        cursor.execute("""
-            CREATE INDEX IF NOT EXISTS idx_trades_user_id ON trades(user_id)
-        """)
-        cursor.execute("""
-            CREATE INDEX IF NOT EXISTS idx_trades_status ON trades(status)
-        """)
-        cursor.execute("""
-            CREATE INDEX IF NOT EXISTS idx_trades_entry_datetime ON trades(entry_datetime)
-        """)
+        # Create indexes for better performance (MySQL compatible)
+        # Try to create indexes, ignore if they already exist
+        try:
+            cursor.execute("CREATE INDEX idx_trades_user_id ON trades(user_id)")
+        except mysql.connector.Error as e:
+            if e.errno != 1061:  # Error 1061 = Duplicate key name
+                raise
+        
+        try:
+            cursor.execute("CREATE INDEX idx_trades_status ON trades(status)")
+        except mysql.connector.Error as e:
+            if e.errno != 1061:
+                raise
+        
+        try:
+            cursor.execute("CREATE INDEX idx_trades_entry_datetime ON trades(entry_datetime)")
+        except mysql.connector.Error as e:
+            if e.errno != 1061:
+                raise
         
         print("✅ Database tables initialized successfully")
 

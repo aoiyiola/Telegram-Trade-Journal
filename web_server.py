@@ -180,9 +180,99 @@ def get_dashboard_data(token):
             """, (user_id,))
             accounts = cursor.fetchall()
             
+            # Calculate user initials
+            name = user['first_name'] or user['username'] or 'User'
+            name_parts = name.split()
+            initials = ''.join([part[0].upper() for part in name_parts if part])[:2]
+            if len(initials) < 2 and len(name) > 0:
+                initials = name[0:2].upper()
+            
+            # Calculate comprehensive trading metrics
+            # Sort closed trades by exit date for time-series
+            closed_trades_sorted = sorted(
+                [t for t in closed_trades if t['exit_datetime']], 
+                key=lambda x: x['exit_datetime']
+            )
+            
+            # Build equity curve (cumulative P&L)
+            equity_curve = []
+            cumulative_pnl = 0
+            for trade in closed_trades_sorted:
+                # Calculate P&L (simplified - using pips or percentage)
+                pnl = 0
+                if trade['result'] == 'W':
+                    pnl = 1  # Win
+                elif trade['result'] == 'L':
+                    pnl = -1  # Loss
+                # For break-even, pnl stays 0
+                
+                cumulative_pnl += pnl
+                equity_curve.append({
+                    'date': trade['exit_datetime'].strftime('%Y-%m-%d'),
+                    'timestamp': trade['exit_datetime'].isoformat(),
+                    'pnl': pnl,
+                    'cumulative': cumulative_pnl,
+                    'trade_id': trade['trade_id']
+                })
+            
+            # Calculate win/loss streaks
+            current_streak = 0
+            current_streak_type = None
+            max_win_streak = 0
+            max_loss_streak = 0
+            
+            for trade in closed_trades_sorted:
+                if trade['result'] == 'W':
+                    if current_streak_type == 'W':
+                        current_streak += 1
+                    else:
+                        current_streak = 1
+                        current_streak_type = 'W'
+                    max_win_streak = max(max_win_streak, current_streak)
+                elif trade['result'] == 'L':
+                    if current_streak_type == 'L':
+                        current_streak += 1
+                    else:
+                        current_streak = 1
+                        current_streak_type = 'L'
+                    max_loss_streak = max(max_loss_streak, current_streak)
+                else:  # Break-even resets streak
+                    current_streak = 0
+                    current_streak_type = None
+            
+            # Calculate profit factor and expectancy
+            total_wins = wins
+            total_losses = losses
+            avg_win = total_wins / wins if wins > 0 else 0
+            avg_loss = total_losses / losses if losses > 0 else 0
+            profit_factor = (total_wins / total_losses) if total_losses > 0 else float('inf')
+            expectancy = (avg_win * win_rate / 100) - (avg_loss * (100 - win_rate) / 100) if closed_trades else 0
+            
+            # Calculate per-account statistics
+            account_stats = {}
+            for account in accounts:
+                acc_id = account['account_id']
+                acc_trades = [t for t in trades if t['account_id'] == acc_id]
+                acc_closed = [t for t in acc_trades if t['status'] == 'CLOSED']
+                acc_wins = len([t for t in acc_closed if t['result'] == 'W'])
+                acc_losses = len([t for t in acc_closed if t['result'] == 'L'])
+                acc_be = len([t for t in acc_closed if t['result'] == 'BE'])
+                
+                account_stats[acc_id] = {
+                    'account_name': account['account_name'],
+                    'is_default': account['is_default'],
+                    'total_trades': len(acc_trades),
+                    'closed_trades': len(acc_closed),
+                    'open_trades': len([t for t in acc_trades if t['status'] == 'OPEN']),
+                    'wins': acc_wins,
+                    'losses': acc_losses,
+                    'break_even': acc_be,
+                    'win_rate': (acc_wins / len(acc_closed) * 100) if acc_closed else 0
+                }
+            
             # Format trades for response
             formatted_trades = []
-            for trade in trades[:50]:  # Last 50 trades
+            for trade in trades[:100]:  # Last 100 trades
                 formatted_trades.append({
                     'id': trade['trade_id'],
                     'pair': trade['pair'],
@@ -204,7 +294,8 @@ def get_dashboard_data(token):
                     'telegram_id': user['telegram_id'],
                     'username': user['username'],
                     'name': user['first_name'],
-                    'email': user['email']
+                    'email': user['email'],
+                    'initials': initials
                 },
                 'stats': {
                     'total_trades': total_trades,
@@ -213,11 +304,17 @@ def get_dashboard_data(token):
                     'wins': wins,
                     'losses': losses,
                     'break_even': break_even,
-                    'win_rate': round(win_rate, 2)
+                    'win_rate': round(win_rate, 2),
+                    'max_win_streak': max_win_streak,
+                    'max_loss_streak': max_loss_streak,
+                    'profit_factor': round(profit_factor, 2) if profit_factor != float('inf') else 'N/A',
+                    'expectancy': round(expectancy, 2)
                 },
+                'equity_curve': equity_curve,
                 'pair_stats': pair_stats,
                 'session_stats': session_stats,
-                'accounts': accounts,
+                'account_stats': account_stats,
+                'accounts': [{'account_id': a['account_id'], 'account_name': a['account_name'], 'is_default': a['is_default']} for a in accounts],
                 'recent_trades': formatted_trades
             })
             
