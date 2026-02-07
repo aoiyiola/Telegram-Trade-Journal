@@ -321,37 +321,61 @@ async def generate_dashboard_link(update: Update, context: ContextTypes.DEFAULT_
         # Generate or reuse token
         token = web_server.generate_dashboard_token(user_id, expires_hours=24)
         
-        # Get base URL from config or environment
+        # Get base URL from environment
         import os
-        base_url = os.getenv('RAILWAY_PUBLIC_DOMAIN', 'localhost:8080')
+        base_url = os.getenv('RAILWAY_PUBLIC_DOMAIN') or os.getenv('RAILWAY_STATIC_URL')
+        
+        if not base_url:
+            # Fallback: try to detect Railway domain
+            railway_env = os.getenv('RAILWAY_ENVIRONMENT_NAME')
+            if railway_env:
+                print("⚠️ RAILWAY_PUBLIC_DOMAIN not set - Dashboard link generation may fail")
+                message = (
+                    "⚠️ <b>Dashboard Configuration Needed</b>\n\n"
+                    "Please set the <code>RAILWAY_PUBLIC_DOMAIN</code> environment variable:\n\n"
+                    "1. Go to Railway Dashboard\n"
+                    "2. Settings → Variables\n"
+                    "3. Add: <code>RAILWAY_PUBLIC_DOMAIN=your-app.up.railway.app</code>\n\n"
+                    f"📝 Your token (save this): <code>{token}</code>\n\n"
+                    "After setting the domain, try /dashboard again."
+                )
+                await update.message.reply_html(message)
+                return
+            else:
+                base_url = 'localhost:8080'
+        
+        # Ensure https prefix
         if not base_url.startswith('http'):
             base_url = f'https://{base_url}'
         
         dashboard_url = f"{base_url}/dashboard?token={token}"
         
+        print(f"🔗 Generated dashboard URL: {dashboard_url}")
+        
         if is_reused:
             message = (
                 "📊 <b>Your Dashboard Link</b>\n\n"
-                f"🔗 <a href='{dashboard_url}'>Open Dashboard</a>\n\n"
+                f"<a href=\"{dashboard_url}\">🔗 Open Dashboard</a>\n\n"
                 "♻️ <b>Same link as before</b> - Still valid!\n"
                 "⏰ <b>Expires in:</b> More than 1 hour remaining\n\n"
+                f"📋 Direct link:\n<code>{dashboard_url}</code>\n\n"
                 "💡 <i>No need to generate new links frequently</i>\n"
                 "📌 <i>Bookmark this link for quick access</i>"
             )
         else:
             message = (
                 "📊 <b>Your Dashboard is Ready!</b>\n\n"
-                f"🔗 Click here to view your trading dashboard:\n"
-                f"<a href='{dashboard_url}'>Open Dashboard</a>\n\n"
+                f"<a href=\"{dashboard_url}\">🔗 Click Here to Open Dashboard</a>\n\n"
                 "⏰ <b>Link expires in:</b> 24 hours\n"
                 "🔒 <b>Security:</b> This link is unique to you\n\n"
+                f"📋 <b>Direct link:</b>\n<code>{dashboard_url}</code>\n\n"
                 "📱 <b>Features:</b>\n"
                 "• Real-time statistics\n"
                 "• Performance charts\n"
                 "• Trade history\n"
                 "• Session analysis\n"
                 "• Mobile & desktop friendly\n\n"
-                "💡 <i>This link stays valid - no need to request again</i>"
+                "💡 <i>Tap the link above or copy the URL</i>"
             )
         
         await update.message.reply_html(
