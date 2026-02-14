@@ -1,32 +1,33 @@
 import React from 'react';
+import { Target, Flame, Snowflake, BarChart3, DollarSign, FileText, CheckCircle2, XCircle, Minus, RefreshCw } from 'lucide-react';
 
 const TradingMetrics = ({ stats }) => {
   const metrics = [
     {
       label: 'Win Rate',
       value: `${stats.win_rate}%`,
-      icon: '🎯',
+      Icon: Target,
       color: stats.win_rate >= 50 ? 'text-green-400' : 'text-red-400',
       bgColor: stats.win_rate >= 50 ? 'bg-green-900/30' : 'bg-red-900/30'
     },
     {
       label: 'Max Win Streak',
       value: stats.max_win_streak || 0,
-      icon: '🔥',
+      Icon: Flame,
       color: 'text-orange-400',
       bgColor: 'bg-orange-900/30'
     },
     {
       label: 'Max Loss Streak',
       value: stats.max_loss_streak || 0,
-      icon: '❄️',
+      Icon: Snowflake,
       color: 'text-blue-400',
       bgColor: 'bg-blue-900/30'
     },
     {
       label: 'Profit Factor',
       value: stats.profit_factor || 'N/A',
-      icon: '📊',
+      Icon: BarChart3,
       color: typeof stats.profit_factor === 'number' && stats.profit_factor > 1 ? 'text-green-400' : 'text-gray-400',
       bgColor: typeof stats.profit_factor === 'number' && stats.profit_factor > 1 ? 'bg-green-900/30' : 'bg-gray-900/30',
       tooltip: 'Gross profit divided by gross loss'
@@ -34,7 +35,7 @@ const TradingMetrics = ({ stats }) => {
     {
       label: 'Expectancy',
       value: stats.expectancy || 0,
-      icon: '💰',
+      Icon: DollarSign,
       color: stats.expectancy > 0 ? 'text-green-400' : 'text-red-400',
       bgColor: stats.expectancy > 0 ? 'bg-green-900/30' : 'bg-red-900/30',
       tooltip: 'Average expected return per trade'
@@ -42,35 +43,35 @@ const TradingMetrics = ({ stats }) => {
     {
       label: 'Total Trades',
       value: stats.total_trades || 0,
-      icon: '📝',
+      Icon: FileText,
       color: 'text-purple-400',
       bgColor: 'bg-purple-900/30'
     },
     {
       label: 'Wins',
       value: stats.wins || 0,
-      icon: '✅',
+      Icon: CheckCircle2,
       color: 'text-green-400',
       bgColor: 'bg-green-900/30'
     },
     {
       label: 'Losses',
       value: stats.losses || 0,
-      icon: '❌',
+      Icon: XCircle,
       color: 'text-red-400',
       bgColor: 'bg-red-900/30'
     },
     {
       label: 'Break Even',
       value: stats.break_even || 0,
-      icon: '➖',
+      Icon: Minus,
       color: 'text-yellow-400',
       bgColor: 'bg-yellow-900/30'
     },
     {
       label: 'Open Trades',
       value: stats.open_trades || 0,
-      icon: '🔄',
+      Icon: RefreshCw,
       color: 'text-cyan-400',
       bgColor: 'bg-cyan-900/30'
     }
@@ -81,23 +82,26 @@ const TradingMetrics = ({ stats }) => {
       <h3 className="text-white font-semibold text-lg mb-6">Trading Metrics</h3>
       
       <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4">
-        {metrics.map((metric, index) => (
-          <div
-            key={index}
-            className={`${metric.bgColor} p-4 rounded-lg border border-gray-700 hover:border-gray-600 transition-all`}
-            title={metric.tooltip}
-          >
-            <div className="flex items-center justify-between mb-2">
-              <span className="text-2xl">{metric.icon}</span>
-              <div className={`${metric.color} text-2xl font-bold`}>
-                {metric.value}
+        {metrics.map((metric, index) => {
+          const IconComponent = metric.Icon;
+          return (
+            <div
+              key={index}
+              className={`${metric.bgColor} p-4 rounded-lg border border-gray-700 hover:border-gray-600 transition-all`}
+              title={metric.tooltip}
+            >
+              <div className="flex items-center justify-between mb-2">
+                <IconComponent className={`w-6 h-6 ${metric.color}`} />
+                <div className={`${metric.color} text-2xl font-bold`}>
+                  {metric.value}
+                </div>
+              </div>
+              <div className="text-gray-400 text-sm font-medium">
+                {metric.label}
               </div>
             </div>
-            <div className="text-gray-400 text-sm font-medium">
-              {metric.label}
-            </div>
-          </div>
-        ))}
+          );
+        })}
       </div>
 
       {/* Performance Indicators */}
