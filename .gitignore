@@ -23,6 +23,7 @@ user_data/
 *.json
 !requirements.txt
 !package.json
+!package-lock.json
 !railway.json
 
 # IDE
