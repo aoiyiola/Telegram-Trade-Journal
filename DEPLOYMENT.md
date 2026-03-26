@@ -2,6 +2,43 @@
 
 ## Quick Deploy Options
 
+### Option 0: Any Hosting via Docker (Most Reliable)
+Use this if buildpacks fail (like the Python runtime download error you saw).
+
+1. Ensure your host deploys from the root `Dockerfile`
+2. Set environment variables:
+   - `TELEGRAM_BOT_TOKEN` (required)
+   - `FCS_API_KEY` (optional)
+   - `START_MODE` (optional, defaults to `both`)
+3. Expose port `8080` (or let host inject `PORT` automatically)
+
+`START_MODE` values:
+- `both`: runs bot + dashboard web server in one container
+- `web`: runs dashboard API/web only
+- `bot`: runs Telegram bot only
+
+This project now includes:
+- root `Dockerfile` (builds React dashboard + Python app)
+- `.python-version` for non-Docker Python hosts
+
+### Universal Deployment Model (Any Platform)
+Use one of these patterns depending on what your host supports:
+
+1. Single service, single process:
+   - Command: `python start.py both`
+   - Use when one container/service should run bot + dashboard together.
+
+2. Two services (recommended at scale):
+   - Web service command: `python start.py web`
+   - Worker service command: `python start.py bot`
+   - Use when your host supports separate web + worker processes.
+
+3. Procfile-based hosts:
+   - `Procfile` now defines both `web` and `worker` process types.
+   - Scale what you need on the target platform.
+
+For buildpack Python hosts, this repo now uses `.python-version` (3.11) instead of the deprecated `runtime.txt`.
+
 ### Option 1: Railway.app (Easiest - $5/month)
 1. Push code to GitHub
 2. Go to [railway.app](https://railway.app)

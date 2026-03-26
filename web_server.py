@@ -327,6 +327,12 @@ def get_dashboard_data(token):
 @app.route('/<path:path>')
 def serve_react(path):
     """Serve React app."""
+    if not app.static_folder or not os.path.exists(app.static_folder):
+        return jsonify({
+            'message': 'Dashboard frontend is not built yet.',
+            'hint': 'Run `cd web && npm ci && npm run build` before serving the dashboard.'
+        }), 503
+
     if path and os.path.exists(os.path.join(app.static_folder, path)):
         return send_from_directory(app.static_folder, path)
     return send_from_directory(app.static_folder, 'index.html')
