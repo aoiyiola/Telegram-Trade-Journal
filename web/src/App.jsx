@@ -10,6 +10,7 @@ import EquityCurve from './components/EquityCurve'
 import TradingMetrics from './components/TradingMetrics'
 import LoadingSpinner from './components/LoadingSpinner'
 import ErrorMessage from './components/ErrorMessage'
+import { useTheme } from './hooks/useTheme'
 
 function App() {
   const [dashboardData, setDashboardData] = useState(null)
@@ -17,6 +18,8 @@ function App() {
   const [error, setError] = useState(null)
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const [selectedAccount, setSelectedAccount] = useState('all')
+
+  const { activeTheme, activeThemeId, customAccent, selectTheme, updateAccent, resetTheme } = useTheme()
 
   useEffect(() => {
     const fetchDashboard = async () => {
@@ -165,7 +168,7 @@ function App() {
   const filteredData = getFilteredData();
 
   return (
-    <div className="min-h-screen flex bg-gray-900">
+    <div className="min-h-screen flex" style={{ backgroundColor: 'var(--color-bg-primary)', color: 'var(--color-text)' }}>
       {/* Sidebar */}
       <Sidebar
         user={dashboardData.user}
@@ -181,6 +184,7 @@ function App() {
         <Header 
           user={dashboardData.user} 
           onMenuToggle={() => setSidebarOpen(!sidebarOpen)}
+          themeProps={{ activeTheme, activeThemeId, customAccent, selectTheme, updateAccent, resetTheme }}
         />
         
         <div className="flex-1 p-4 sm:p-6 lg:p-8 space-y-6 overflow-auto">

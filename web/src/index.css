@@ -2,9 +2,23 @@
 @tailwind components;
 @tailwind utilities;
 
+/* Default theme CSS variables (Dark Blue preset) – overridden at runtime by useTheme */
+:root {
+  --color-bg-primary: #0f172a;
+  --color-bg-secondary: #1e293b;
+  --color-bg-tertiary: #334155;
+  --color-border: #334155;
+  --color-accent: #0ea5e9;
+  --color-accent-hover: #0284c7;
+  --color-text: #f1f5f9;
+  --color-text-muted: #94a3b8;
+}
+
 @layer base {
   body {
-    @apply bg-gradient-to-br from-dark-900 via-dark-800 to-dark-900 text-white min-h-screen;
+    background-color: var(--color-bg-primary);
+    color: var(--color-text);
+    min-height: 100vh;
   }
 }
 

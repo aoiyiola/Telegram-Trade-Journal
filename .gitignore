@@ -1,3 +1,7 @@
+# Node
+node_modules/
+web/node_modules/
+
 # Environment variables (CRITICAL - NEVER COMMIT!)
 .env
 .env.local
